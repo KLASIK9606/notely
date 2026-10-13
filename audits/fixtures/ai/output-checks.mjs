@@ -1,0 +1,50 @@
+// Independent controlled output audit: no provider call and no API credentials.
+import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
+import { validMaterials, transcriptionSchema, validTranscription } from '../../../server/schema.mjs';
+import { normalizeOcr, readOcr } from '../../../server/ocrRead.mjs';
+import { mergeTranscriptions } from '../../../src/transcription.ts';
+import { generateMaterialBatches } from '../../../src/materialPipeline.ts';
+import { unresolvedLines, omitTranscriptionLines, editTranscriptionLine } from '../../../src/transcriptionReview.ts';
+
+const source = ['Powstanie styczniowe wybuchło 22 stycznia 1863 roku.', 'Branka przyspieszyła wybuch powstania.', 'Walki miały charakter partyzancki.', 'Po klęsce powstania nasiliły się represje.'];
+const note = (lines = source) => ({ title: 'Powstanie styczniowe', subject: 'Historia', lines, uncertainties: [] });
+const materials = () => ({
+  summary: 'Powstanie styczniowe: przyczyny, przebieg i następstwa.',
+  sections: [{ heading: 'Kontekst i przebieg', body: 'Powstanie wybuchło 22 stycznia 1863 roku. Branka przyspieszyła jego wybuch. Walki miały charakter partyzancki, a po klęsce nasiliły się represje.', sourceLines: [1, 2, 3, 4] }],
+  flashcards: [{ question: 'Kiedy wybuchło powstanie?', answer: '22 stycznia 1863 roku.', sourceLines: [1] }],
+  quiz: [{ question: 'Jaki charakter miały walki?', options: ['Partyzancki', 'Wyłącznie morski', 'Wyłącznie lotniczy', 'Nie prowadzono walk'], correctIndex: 0, explanation: 'Źródło określa walki jako partyzanckie.', sourceLines: [3] }],
+  mindMap: { center: 'Powstanie styczniowe', branches: [{ label: 'Przyczyny i następstwa', children: ['Branka przyspieszyła wybuch', 'Po klęsce nasiliły się represje'], sourceLines: [2, 4] }] },
+});
+const results = [];
+async function check(id, kind, expectation, operation) {
+  try { await operation(); results.push({ id, kind, status: 'PASS', expectation }); }
+  catch (error) { results.push({ id, kind, status: 'FAIL', expectation, observation: error.message }); }
+}
+
+await check('grounded-history', 'structural', 'Valid complete controlled history output accepted', () => assert.ok(validMaterials(materials(), source)));
+await check('invalid-reference', 'structural', 'Nonexistent reference rejected', () => { const m = materials(); m.sections[0].sourceLines = [999]; assert.equal(validMaterials(m, source), false); });
+await check('blank-reference', 'structural', 'Blank source line cannot support output', () => { const m = materials(); m.sections[0].sourceLines = [5]; assert.equal(validMaterials(m, [...source, ' ']), false); });
+await check('duplicate-quiz-options', 'structural', 'Exactly identical quiz options rejected', () => { const m = materials(); m.quiz[0].options[1] = m.quiz[0].options[0]; assert.equal(validMaterials(m, source), false); });
+await check('wrong-date', 'semantic', 'Date contradicting source rejected', () => { const m = materials(); m.sections[0].body = 'Powstanie wybuchło 22 stycznia 1864 roku.'; assert.equal(validMaterials(m, source), false, 'Wrong year with legal references accepted'); });
+await check('unsupported-number', 'semantic', 'Invented quantity rejected', () => { const m = materials(); m.sections[0].body += ' W walkach uczestniczyło 123456 osób.'; assert.equal(validMaterials(m, source), false, 'Invented number accepted'); });
+await check('wrong-support-line', 'semantic', 'A real but unrelated line cannot support answer', () => { const m = materials(); m.flashcards[0].sourceLines = [4]; assert.equal(validMaterials(m, source), false, 'Date answer references only reprisals line and is accepted'); });
+await check('two-correct-quiz-options', 'semantic', 'Two semantically correct options rejected', () => { const m = materials(); m.quiz[0].options[1] = 'Walki partyzanckie'; assert.equal(validMaterials(m, source), false, 'Two correct paraphrases accepted'); });
+await check('uncovered-tail', 'semantic', 'Missing crucial end fact detected', () => { const m = materials(); m.sections[0] = { heading: 'Data', body: 'Powstanie wybuchło 22 stycznia 1863 roku.', sourceLines: [1] }; m.mindMap.branches[0] = { label: 'Data', children: ['22 stycznia 1863'], sourceLines: [1] }; assert.equal(validMaterials(m, source), false, 'Last source fact omitted without coverage warning'); });
+await check('vague-note', 'semantic', 'A useless unrelated general note rejected', () => { const m = materials(); m.sections[0].body = 'To ważny temat. Warto się go nauczyć.'; assert.equal(validMaterials(m, source), false, 'Non-explanatory generic prose with valid references accepted'); });
+await check('handwriting-empty-recovery', 'ocr-control', 'Empty OCR retried once and readable text retained', async () => { let calls = 0; const r = await readOcr({}, {}, transcriptionSchema, 'transcription', '', [], {}, async () => ++calls === 1 ? note([]) : note()); assert.equal(calls, 2); assert.deepEqual(r.lines, source); });
+await check('empty-twice-error', 'ocr-control', 'Completely empty result fails honestly after exactly two calls', async () => { let calls = 0; await assert.rejects(readOcr({}, {}, transcriptionSchema, 'transcription', '', [], {}, async () => { calls++; return note([]); }), e => e.status === 422); assert.equal(calls, 2); });
+await check('quota-no-double-call', 'ocr-control', 'Quota failure not repeated as OCR recovery', async () => { let calls = 0; await assert.rejects(readOcr({}, {}, transcriptionSchema, 'transcription', '', [], {}, async () => { calls++; throw Object.assign(new Error('quota'), { status: 429 }); }), e => e.status === 429); assert.equal(calls, 1); });
+await check('misplaced-uncertainty', 'ocr-control', 'Invalid uncertainty number flags all nonempty lines rather than losing text', () => { const n = normalizeOcr({ ...note(), uncertainties: [{ line: 999, reason: 'Niepewna data' }] }); assert.ok(validTranscription(n)); assert.deepEqual(unresolvedLines(n), [1, 2, 3, 4]); });
+await check('uncertain-review-correction', 'review', 'Correction removes only relevant warning', () => { const n = { ...note(), uncertainties: [{ line: 1, reason: 'Rok niepewny' }, { line: 4, reason: 'Końcowe słowo niepewne' }] }; const fixed = editTranscriptionLine(n, 0, source[0] + ' '); assert.deepEqual(unresolvedLines(fixed), [4]); });
+await check('uncertain-review-skip', 'review', 'Skipped uncertain text absent from generation', async () => { const n = { ...note(), uncertainties: [{ line: 1, reason: 'Rok niepewny' }] }; const cleared = omitTranscriptionLines(n, unresolvedLines(n)); await generateMaterialBatches(cleared, async p => { assert.ok(!p.lines.includes(source[0])); assert.deepEqual(p.uncertainties, []); const m = materials(); m.sections[0].sourceLines = [1, 2, 3]; m.mindMap.branches[0].sourceLines = [1, 3]; return m; }); });
+await check('eight-attachments-tail', 'batching', 'All 1600 lines and last attachment sent and references remapped', async () => { const n = mergeTranscriptions(Array.from({ length: 8 }, (_, p) => note(Array.from({ length: 200 }, (_, l) => `Strona ${p + 1}, wiersz ${l + 1}`)))); let sent = []; const r = await generateMaterialBatches(n, async p => { sent.push(...p.lines); const m = materials(); m.sections[0].sourceLines = [200]; return m; }); assert.deepEqual(sent, n.lines); assert.equal(sent.at(-1), 'Strona 8, wiersz 200'); assert.deepEqual(r.sections.at(-1).sourceLines, [1600]); });
+await check('later-batch-failure', 'batching', 'Later batch failure cannot masquerade as complete lesson', async () => { let calls = 0; await assert.rejects(generateMaterialBatches(note(Array(201).fill('Treść')), async () => { if (++calls === 2) throw new Error('quota'); return materials(); }), /quota/); assert.equal(calls, 2); });
+await check('adaptive-short-no-forced-aids', 'adaptive-contract', 'A short source-grounded note can have no cards, quiz or map branches', () => { const m = materials(); m.summary = 'Walki były partyzanckie.'; m.sections = [{ heading: 'Charakter walk', body: 'Walki miały charakter partyzancki.', sourceLines: [1] }]; m.flashcards = []; m.quiz = []; m.mindMap.branches = []; assert.ok(validMaterials(m, ['Walki miały charakter partyzancki.'])); });
+await check('adaptive-empty-main-note-rejected', 'adaptive-contract', 'Empty main general note still rejected', () => { const m = materials(); m.sections = []; assert.equal(validMaterials(m, source), false); });
+await check('adaptive-aid-without-evidence-rejected', 'adaptive-contract', 'An optional aid still needs sources when present', () => { for (const group of ['flashcards', 'quiz']) { const m = materials(); m[group][0].sourceLines = []; assert.equal(validMaterials(m, source), false); } const m = materials(); m.mindMap.branches[0].sourceLines = []; assert.equal(validMaterials(m, source), false); });
+await check('adaptive-overflow-rejected', 'adaptive-contract', '31 sections, cards, quiz questions or branches are rejected per model output', () => { for (const group of ['sections', 'flashcards', 'quiz']) { const m = materials(); m[group] = Array.from({ length: 31 }, () => structuredClone(m[group][0])); assert.equal(validMaterials(m, source), false); } const m = materials(); m.mindMap.branches = Array.from({ length: 31 }, () => structuredClone(m.mindMap.branches[0])); assert.equal(validMaterials(m, source), false); });
+results.push({ id: 'live-gemini-ocr-handwriting-pdf', kind: 'live-provider', status: 'NOT TESTED', expectation: 'Read real handwriting and PDF, verify factual content', observation: 'No locally configured provider API key; controlled model outputs do not prove provider quality.' });
+await writeFile(new URL('./results.json', import.meta.url), JSON.stringify({ date: '2026-10-12', mode: 'controlled outputs, no external requests', results }, null, 2));
+for (const result of results) console.log(`${result.status} ${result.id}${result.observation ? ': ' + result.observation : ''}`);
+console.log(JSON.stringify({ pass: results.filter(r => r.status === 'PASS').length, fail: results.filter(r => r.status === 'FAIL').length, notTested: results.filter(r => r.status === 'NOT TESTED').length }));

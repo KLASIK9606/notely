@@ -1,0 +1,13 @@
+import React from 'react';
+import { Image, Pressable, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { Source } from './types';
+import { C, s } from './ui';
+import { AudioPlayerControls } from './audioUI';
+export function LessonForm({ title, onTitle }: { title: string; onTitle: (v: string) => void }) {
+  return <View style={s.sectionCard}><Text style={s.h2}>Tytuł</Text><TextInput accessibilityLabel="Tytuł lekcji" style={s.input} value={title} onChangeText={onTitle} maxLength={200} placeholder="np. Budowa komórki" placeholderTextColor={C.muted} /><Text style={s.small}>Możesz zostawić puste — AI nada tytuł na podstawie materiałów.</Text></View>;
+}
+export function SourceEditor({ sources, onChange, onOpen }: { sources: Source[]; onChange: (sources: Source[]) => void; onOpen: (source: Source) => void }) {
+  return <View style={{ gap: 12 }}>{sources.map((source, i) => <View key={source.id} style={s.sectionCard}><View style={s.row}><Pressable accessibilityLabel={`Podgląd ${source.name}`} onPress={() => onOpen(source)}>{source.mime.startsWith('image/') ? <Image source={{ uri: source.uri }} style={[s.thumb, { width: 56, height: 68 }]} /> : <View style={[s.thumb, { width: 56, height: 68 }]}><Ionicons name={source.mime.startsWith('audio/') ? 'mic-outline' : 'document-text-outline'} size={28} color={C.green} /></View>}</Pressable><View style={{ flex: 1 }}><Text style={s.cardTitle} numberOfLines={1}>{i + 1}. {source.name}</Text><Text style={s.small}>{(source.bytes / 1024 / 1024).toFixed(1)} MB</Text></View><Pressable accessibilityRole="button" accessibilityLabel={`Przesuń plik ${i + 1} w górę`} disabled={i === 0} onPress={() => { const next = [...sources]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onChange(next); }} style={s.iconButton}><Ionicons name="arrow-up" size={18} color={i ? C.green : C.border} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`Usuń plik ${i + 1} z lekcji`} onPress={() => onChange(sources.filter(f => f.id !== source.id))} style={s.iconButton}><Ionicons name="close" size={20} color={C.muted} /></Pressable></View><TextInput accessibilityLabel={`Podpis pliku ${i + 1}`} value={source.caption || ''} onChangeText={caption => onChange(sources.map(f => f.id === source.id ? { ...f, caption } : f))} maxLength={250} style={s.input} placeholder={source.mime.startsWith('audio/') ? 'np. Wykład — budowa komórki' : `np. Strona ${i + 1} — budowa komórki`} placeholderTextColor={C.muted} />{source.mime.startsWith('audio/') && <AudioPlayerControls source={source} />}</View>)}</View>;
+}
+

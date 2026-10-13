@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "Notely",
+    "slug": "notely",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.notely.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "app.notely.mobile"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Pozwól Notely fotografować Twoje notatki.",
+          "photosPermission": "Pozwól Notely wybrać zdjęcia Twoich notatek.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-sharing",
+      "expo-secure-store",
+      "expo-build-properties",
+      [
+        "llama.rn",
+        {
+          "forceCxx20": true,
+          "enableEntitlements": true,
+          "entitlementsProfile": "production",
+          "enableOpenCLAndHexagon": false
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Pozwól Notely nagrywać wykłady i notatki głosowe.",
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "scheme": "notely"
+  }
+}

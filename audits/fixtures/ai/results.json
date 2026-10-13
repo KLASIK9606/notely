@@ -1,0 +1,151 @@
+{
+  "date": "2026-10-12",
+  "mode": "controlled outputs, no external requests",
+  "results": [
+    {
+      "id": "grounded-history",
+      "kind": "structural",
+      "status": "PASS",
+      "expectation": "Valid complete controlled history output accepted"
+    },
+    {
+      "id": "invalid-reference",
+      "kind": "structural",
+      "status": "PASS",
+      "expectation": "Nonexistent reference rejected"
+    },
+    {
+      "id": "blank-reference",
+      "kind": "structural",
+      "status": "PASS",
+      "expectation": "Blank source line cannot support output"
+    },
+    {
+      "id": "duplicate-quiz-options",
+      "kind": "structural",
+      "status": "PASS",
+      "expectation": "Exactly identical quiz options rejected"
+    },
+    {
+      "id": "wrong-date",
+      "kind": "semantic",
+      "status": "FAIL",
+      "expectation": "Date contradicting source rejected",
+      "observation": "Wrong year with legal references accepted\n\ntrue !== false\n"
+    },
+    {
+      "id": "unsupported-number",
+      "kind": "semantic",
+      "status": "FAIL",
+      "expectation": "Invented quantity rejected",
+      "observation": "Invented number accepted\n\ntrue !== false\n"
+    },
+    {
+      "id": "wrong-support-line",
+      "kind": "semantic",
+      "status": "FAIL",
+      "expectation": "A real but unrelated line cannot support answer",
+      "observation": "Date answer references only reprisals line and is accepted\n\ntrue !== false\n"
+    },
+    {
+      "id": "two-correct-quiz-options",
+      "kind": "semantic",
+      "status": "FAIL",
+      "expectation": "Two semantically correct options rejected",
+      "observation": "Two correct paraphrases accepted\n\ntrue !== false\n"
+    },
+    {
+      "id": "uncovered-tail",
+      "kind": "semantic",
+      "status": "FAIL",
+      "expectation": "Missing crucial end fact detected",
+      "observation": "Last source fact omitted without coverage warning\n\ntrue !== false\n"
+    },
+    {
+      "id": "vague-note",
+      "kind": "semantic",
+      "status": "FAIL",
+      "expectation": "A useless unrelated general note rejected",
+      "observation": "Non-explanatory generic prose with valid references accepted\n\ntrue !== false\n"
+    },
+    {
+      "id": "handwriting-empty-recovery",
+      "kind": "ocr-control",
+      "status": "PASS",
+      "expectation": "Empty OCR retried once and readable text retained"
+    },
+    {
+      "id": "empty-twice-error",
+      "kind": "ocr-control",
+      "status": "PASS",
+      "expectation": "Completely empty result fails honestly after exactly two calls"
+    },
+    {
+      "id": "quota-no-double-call",
+      "kind": "ocr-control",
+      "status": "PASS",
+      "expectation": "Quota failure not repeated as OCR recovery"
+    },
+    {
+      "id": "misplaced-uncertainty",
+      "kind": "ocr-control",
+      "status": "PASS",
+      "expectation": "Invalid uncertainty number flags all nonempty lines rather than losing text"
+    },
+    {
+      "id": "uncertain-review-correction",
+      "kind": "review",
+      "status": "PASS",
+      "expectation": "Correction removes only relevant warning"
+    },
+    {
+      "id": "uncertain-review-skip",
+      "kind": "review",
+      "status": "PASS",
+      "expectation": "Skipped uncertain text absent from generation"
+    },
+    {
+      "id": "eight-attachments-tail",
+      "kind": "batching",
+      "status": "PASS",
+      "expectation": "All 1600 lines and last attachment sent and references remapped"
+    },
+    {
+      "id": "later-batch-failure",
+      "kind": "batching",
+      "status": "PASS",
+      "expectation": "Later batch failure cannot masquerade as complete lesson"
+    },
+    {
+      "id": "adaptive-short-no-forced-aids",
+      "kind": "adaptive-contract",
+      "status": "PASS",
+      "expectation": "A short source-grounded note can have no cards, quiz or map branches"
+    },
+    {
+      "id": "adaptive-empty-main-note-rejected",
+      "kind": "adaptive-contract",
+      "status": "PASS",
+      "expectation": "Empty main general note still rejected"
+    },
+    {
+      "id": "adaptive-aid-without-evidence-rejected",
+      "kind": "adaptive-contract",
+      "status": "PASS",
+      "expectation": "An optional aid still needs sources when present"
+    },
+    {
+      "id": "adaptive-overflow-rejected",
+      "kind": "adaptive-contract",
+      "status": "PASS",
+      "expectation": "31 sections, cards, quiz questions or branches are rejected per model output"
+    },
+    {
+      "id": "live-gemini-ocr-handwriting-pdf",
+      "kind": "live-provider",
+      "status": "NOT TESTED",
+      "expectation": "Read real handwriting and PDF, verify factual content",
+      "observation": "No locally configured provider API key; controlled model outputs do not prove provider quality."
+    }
+  ]
+}
