@@ -8,6 +8,8 @@ import { googleAIAccess } from './googleAI';
 import { generateMaterialBatches } from './materialPipeline';
 import { readableSourceBlob, uploadFilename } from './sourceRead';
 import { sourceLimit } from './sourcePolicy';
+import { managedAI } from './betaConfig';
+import { supabase } from './auth';
 
 export class ApiError extends Error {
   searchRequested: boolean;
@@ -28,7 +30,7 @@ function trustedTransport(value: string) {
 
 function cloudOptions(settings: Settings, keys?: ApiKeys) {
   if (settings.provider === 'local') throw new Error('Tryb lokalny nie korzysta z serwera.');
-  const apiKey = keys?.[settings.provider]?.trim() || '';
+  const apiKey = managedAI ? '' : keys?.[settings.provider]?.trim() || '';
   if (!trustedTransport(settings.apiUrl.trim())) throw new Error('Połączenie z serwerem wymaga HTTPS. Lokalne HTTP jest dostępne tylko podczas testów w prywatnej sieci.');
   if (settings.provider === 'gemini' && settings.geminiAccess === 'google') {
     const project = settings.googleProject?.trim() || '';
@@ -42,6 +44,13 @@ export async function request<T>(settings: Settings, path: string, body: unknown
   const url = settings.apiUrl.trim().replace(/\/$/, '');
   if (!/^https?:\/\//.test(url)) throw new Error('Ustaw adres serwera w Ustawieniach, np. https://twoj-serwer.pl.');
   checkOcrCancelled(signal);
+  let token = settings.token;
+  if (managedAI) {
+    if (!supabase) throw new Error('Logowanie Notely nie jest jeszcze skonfigurowane.');
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session) throw new Error('Zaloguj się do Notely, aby korzystać z AI.');
+    token = data.session.access_token;
+  }
   if (settings.provider === 'gemini' && settings.geminiAccess === 'google') {
     if (!trustedTransport(url)) throw new Error('Połączenie Google wymaga zaufanego serwera HTTPS lub lokalnego serwera podczas testów.');
     const access = await googleAIAccess();
@@ -56,7 +65,7 @@ export async function request<T>(settings: Settings, path: string, body: unknown
   const timer = setTimeout(() => controller.abort(), path === '/api/audio' ? 210000 : path === '/api/teacher' ? 75000 : 120000);
   try {
     const response = await fetch(url + path, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...(settings.token ? { Authorization: `Bearer ${settings.token}` } : {}) },
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body), signal: controller.signal,
     });
     const result = await response.json();

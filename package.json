@@ -43,7 +43,9 @@
     "api": "node --env-file-if-exists=server/.env server/index.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-isolation=none server/server.test.mjs server/providers.test.mjs server/audio.test.mjs src/review.test.mjs src/lessons.test.mjs src/daily.test.mjs src/pickerFlow.test.mjs src/ocrPipeline.test.mjs src/deletion.test.mjs src/materialLibrary.test.mjs src/audioSession.test.mjs src/sourceCopy.test.mjs server/teacher.test.mjs src/account.test.mjs src/sourceStorage.test.mjs src/studyLayout.test.mjs server/vocabulary.test.mjs src/vocabulary.test.mjs src/materialPipeline.test.mjs src/transcriptionReview.integration.test.mjs src/cancellation.test.mjs server/ocrRead.test.mjs src/sourceRead.test.mjs server/schemaFlexibility.test.mjs src/mapLayout.test.mjs",
-    "native": "expo start --dev-client"
+    "native": "expo start --dev-client",
+    "secrets:check": "node scripts/check-secrets.cjs --history",
+    "secrets:install": "git config core.hooksPath .githooks"
   },
   "private": true
 }

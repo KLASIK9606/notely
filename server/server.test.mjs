@@ -1,5 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+test('Managed beta verifies sessions, ignores client credentials and limits operations per user', async () => {
+  const originalFetch = globalThis.fetch;
+  const server = createServer({ managed: true, keys: { gemini: 'owner-fixture' }, dailyUserLimit: 1, verifyUser: async token => token === 'valid-session' ? 'user-1' : null });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const request = (path, token, body) => originalFetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+    assert.equal((await request('/api/check', '', {})).status, 401);
+    assert.equal((await request('/api/check', 'invalid-session', {})).status, 401);
+    globalThis.fetch = async (url, options) => {
+      assert.match(String(url), /generativelanguage.googleapis.com/);
+      assert.equal(options.headers['x-goog-api-key'], 'owner-fixture');
+      return Response.json({ models: [{ name: 'models/gemini-3.1-flash-lite', supportedGenerationMethods: ['generateContent'] }] });
+    };
+    const check = await request('/api/check', 'valid-session', { ai: { provider: 'openai', apiKey: 'injected-key' } });
+    assert.equal(check.status, 200);
+    assert.equal((await check.json()).provider, 'gemini');
+    assert.equal((await request('/api/vocabulary', 'valid-session', { terms: [] })).status, 400);
+    assert.equal((await request('/api/vocabulary', 'valid-session', { terms: [] })).status, 429);
+  } finally {
+    globalThis.fetch = originalFetch;
+    server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+  }
+});
 import http from 'node:http';
 import { createServer, validateFiles } from './index.mjs';
 import { validMaterials, validTranscription } from './schema.mjs';

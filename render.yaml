@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: notely-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm run api
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: HOST
+        value: 0.0.0.0
+      - key: MANAGED_AI
+        value: "true"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: AI_DAILY_USER_LIMIT
+        value: "100"
+      - key: AI_DAILY_TOTAL_LIMIT
+        value: "500"
