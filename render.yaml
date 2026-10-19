@@ -13,6 +13,8 @@ services:
         value: 0.0.0.0
       - key: MANAGED_AI
         value: "true"
+      - key: ALLOW_GUEST_AI
+        value: "true"
       - key: GEMINI_API_KEY
         sync: false
       - key: SUPABASE_URL

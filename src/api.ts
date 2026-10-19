@@ -8,7 +8,7 @@ import { googleAIAccess } from './googleAI';
 import { generateMaterialBatches } from './materialPipeline';
 import { readableSourceBlob, uploadFilename } from './sourceRead';
 import { sourceLimit } from './sourcePolicy';
-import { managedAI } from './betaConfig';
+import { managedAI, requireAILogin } from './betaConfig';
 import { supabase } from './auth';
 
 export class ApiError extends Error {
@@ -45,7 +45,7 @@ export async function request<T>(settings: Settings, path: string, body: unknown
   if (!/^https?:\/\//.test(url)) throw new Error('Ustaw adres serwera w Ustawieniach, np. https://twoj-serwer.pl.');
   checkOcrCancelled(signal);
   let token = settings.token;
-  if (managedAI) {
+  if (requireAILogin) {
     if (!supabase) throw new Error('Logowanie Notely nie jest jeszcze skonfigurowane.');
     const { data, error } = await supabase.auth.getSession();
     if (error || !data.session) throw new Error('Zaloguj się do Notely, aby korzystać z AI.');

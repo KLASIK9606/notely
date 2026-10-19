@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 16.0.0"
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -13,7 +14,11 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_MANAGED_AI": "true"
+        "EXPO_PUBLIC_MANAGED_AI": "true",
+        "EXPO_PUBLIC_API_URL": "https://notely-api-89ap.onrender.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://tnnirkyqkpyeqtvmeuxm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_zUWKpS-8PC339Ig8MXuRkw_T83k0Teu",
+        "EXPO_PUBLIC_REQUIRE_AI_LOGIN": "false"
       }
     },
     "production": {

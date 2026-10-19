@@ -54,6 +54,12 @@
       ],
       "expo-web-browser"
     ],
-    "scheme": "notely"
+    "scheme": "notely",
+    "extra": {
+      "eas": {
+        "projectId": "f92c7785-80d5-40e6-805e-d8532df0941d"
+      }
+    },
+    "owner": "klasikos"
   }
 }

@@ -17,6 +17,18 @@ export function parseVocabulary(text: string) {
   return { entries, missing, lines };
 }
 
+export function applyVocabularyTranslations(text: string, answers: { term: string; answer: string }[]) {
+  const parsed = parseVocabulary(text);
+  if (answers.length > parsed.missing.length) throw new Error('Tłumaczenia nie pasują do listy.');
+  const lines = [...parsed.lines];
+  answers.forEach((answer, i) => {
+    const row = parsed.missing[i];
+    if (answer.term !== row.text) throw new Error('Kolejność tłumaczeń nie pasuje do listy.');
+    if (answer.answer.trim() && !/\[(?:nieczytelne|niepewne)\]/i.test(row.text)) lines[row.line - 1] = `${row.text} — ${answer.answer.trim()}`;
+  });
+  return lines.join('\n');
+}
+
 export function vocabularyNote(text: string, title: string, sources: Source[], id: string): Note {
   const parsed = parseVocabulary(text);
   if (parsed.missing.length) throw new Error(`Uzupełnij tłumaczenie lub znaczenie w ${parsed.missing.length} wierszach. Żadnego słówka nie pominiemy.`);

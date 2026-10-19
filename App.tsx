@@ -15,7 +15,7 @@ import { generate, transcribe, validateOcr, checkConnection, ConnectionResult, g
 import { Note, Settings, Source, Transcription, Lesson, Materials } from './src/types';
 import { nextLessonNumber } from './src/lessons';
 import { migrateSettings, providerNames } from './src/settings';
-import { managedAI } from './src/betaConfig';
+import { managedAI, requireAILogin } from './src/betaConfig';
 import { readKeys, saveKeys, ApiKeys } from './src/vault';
 import { downloadLocal, localReady, localAvailable, releaseLocal, cancelDownload } from './src/local';
 import { LessonForm, SourceEditor } from './src/lessonUI';
@@ -37,7 +37,7 @@ import { Teacher } from './src/teacherUI';
 import { AccountBoundary } from './src/accountUI';
 import { accountStorageKey } from './src/accountPolicy';
 import { VocabularyEditor } from './src/vocabularyUI';
-import { parseVocabulary, vocabularyNote } from './src/vocabulary';
+import { parseVocabulary, vocabularyNote, applyVocabularyTranslations } from './src/vocabulary';
 import { C, s, Button, Chip, Empty, Evidence, Icon, countLabel } from './src/ui';
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -162,6 +162,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
   function startLesson() { return task('Przygotowuję nową lekcję…', async () => { const previous = sources.length ? await ensureLesson() : null; const all = previous ? [previous, ...lessons.filter(l => l.id !== previous.id)] : lessons; setLessonId(null); setLessonTitle(''); setLessonSubject('Notatki'); setLessonNumber(String(nextLessonNumber(all, 'Notatki'))); setSources([]); setDraft(null); setChecked(false); setConsent(false); setScreen('import'); }); }
   function startVocabulary() { setConsent(false); setScreen('vocabulary'); }
   async function readVocabulary() {
+    if (requireAILogin && !owner) { setToast('Zaloguj się, a potem wróć do odczytu. W Expo Go użyj e-maila.'); openAccount(); return; }
     try { validateOcr(settings, vocabularySources, keys); } catch (e) { setError(e instanceof Error ? e.message : 'Sprawdź ustawienia AI.'); return; }
     await task('Odczytuję listę słówek…', async () => {
       const controller = new AbortController(); ocrAbort.current = controller;
@@ -172,11 +173,27 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
         if (controller.signal.aborted) return;
         const uncertain = new Set(result.uncertainties.map(item => item.line));
         const lines = result.lines.map((line, i) => uncertain.has(i + 1) ? `${line} [niepewne]` : line);
-        setVocabularyText(old => [old.trim(), lines.join('\n')].filter(Boolean).join('\n'));
+        const text = [vocabularyText.trim(), lines.join('\n')].filter(Boolean).join('\n');
+        setVocabularyText(text);
         setVocabularyReadIds(old => [...new Set([...old, ...pending.map(source => source.id)])]);
-        setToast('Lista odczytana. Sprawdź wszystkie pary przed zapisaniem.');
+        if (!/\[(?:nieczytelne|niepewne)\]/i.test(text) && parseVocabulary(text).missing.length) await translateVocabularyText(text, controller);
+        setToast('Lista odczytana. Sprawdź tłumaczenia i kliknij „Zrób fiszki”.');
       } finally { if (ocrAbort.current === controller) ocrAbort.current = null; }
     });
+  }
+  async function translateVocabularyText(text: string, controller: AbortController) {
+    const parsed = parseVocabulary(text);
+    if (!parsed.missing.length) return text;
+    if (settings.provider !== 'local' && !consent) throw new Error('Zaznacz zgodę na przetworzenie słówek przez AI.');
+    if (/\[(?:nieczytelne|niepewne)\]/i.test(text)) throw new Error('Najpierw popraw oznaczone słowa ze zdjęcia.');
+    const answers = await generateVocabulary(parsed.missing.map(row => row.text), settings, keys, controller.signal, (label, partial) => {
+      setBusy(label);
+      if (!controller.signal.aborted) setVocabularyText(applyVocabularyTranslations(text, partial));
+    });
+    if (controller.signal.aborted) throw new Error('Tłumaczenie anulowane. Lista pozostała zachowana.');
+    const translated = applyVocabularyTranslations(text, answers);
+    setVocabularyText(translated);
+    return translated;
   }
   async function completeVocabulary() {
     await task('Uzupełniam znaczenia słówek…', async () => {
@@ -198,7 +215,12 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
   }
   async function saveVocabulary() {
     await task('Zapisuję cały zestaw fiszek…', async () => {
-      const newNote = vocabularyNote(vocabularyText, vocabularyTitle, vocabularySources, uid());
+      const controller = new AbortController(); ocrAbort.current = controller;
+      let text;
+      try { text = await translateVocabularyText(vocabularyText, controller); }
+      finally { if (ocrAbort.current === controller) ocrAbort.current = null; }
+      if (parseVocabulary(text).missing.length) throw new Error('AI nie rozpoznało wszystkich słów. Lista została zachowana — uzupełnij brakujące tłumaczenia i spróbuj ponownie.');
+      const newNote = vocabularyNote(text, vocabularyTitle, vocabularySources, uid());
       const next = [newNote, ...notes];
       await AsyncStorage.setItem(STORE, JSON.stringify(next));
       await AsyncStorage.removeItem(VOCABULARY);
@@ -207,6 +229,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
   }
   async function readLesson() {
     if (gate.current || picker.busy) return;
+    if (requireAILogin && !owner) { setToast('Zaloguj się, a potem wróć do odczytu. W Expo Go użyj e-maila.'); openAccount(); return; }
     // Fail before opening any loading screen or saving a lesson when AI is unavailable.
     try { validateOcr(settings, sources, keys); }
     catch (e) { setError(e instanceof Error ? e.message : 'Sprawdź ustawienia odczytu.'); return; }
@@ -444,7 +467,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
       </>}
       {screen === 'vocabulary' && <>
         <Button text="Wróć do dodawania materiałów" secondary icon="arrow-back" onPress={() => setScreen('import')} />
-        <View style={s.captureBox}><Text style={s.h2}>Zdjęcie listy albo własne słówka</Text><Text style={s.body}>Dodaj zdjęcia słówek z tłumaczeniami lub wklej listę poniżej.</Text><Button text="Zrób zdjęcie" icon="camera-outline" disabled={!!pickerStatus} onPress={() => pickImages(true)} /><Button text="Wybierz zdjęcia" secondary icon="images-outline" disabled={!!pickerStatus} onPress={() => pickImages(false)} /></View>
+        <View style={s.captureBox}><Text style={s.h2}>Zdjęcie listy albo własne słówka</Text><Text style={s.body}>Dodaj zdjęcia słów lub zdań w obcym języku albo wklej listę poniżej. Polskie tłumaczenia dodamy automatycznie.</Text><Button text="Zrób zdjęcie" icon="camera-outline" disabled={!!pickerStatus} onPress={() => pickImages(true)} /><Button text="Wybierz zdjęcia" secondary icon="images-outline" disabled={!!pickerStatus} onPress={() => pickImages(false)} /></View>
         <SourceEditor sources={vocabularySources} onOpen={setOriginal} onChange={setVocabularySources} />
         <View style={s.sectionRow}><Chip>{providerNames[settings.provider]}</Chip><Pressable accessibilityRole="button" onPress={() => setScreen('settings')}><Text style={s.link}>Ustawienia AI →</Text></Pressable></View>
         {settings.provider !== 'local' && <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: consent }} onPress={() => setConsent(!consent)} style={s.checkboxRow}><Ionicons name={consent ? 'checkbox' : 'square-outline'} size={25} color={C.green} /><Text style={[s.small, { flex: 1 }]}>Zgadzam się na przetworzenie zdjęć lub słówek przez serwer Notely i {providerNames[settings.provider]}.</Text></Pressable>}
@@ -490,7 +513,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
         {!managedAI && settings.provider !== 'local' && <View style={s.sectionCard}><Text style={s.h2}>Twój serwer dla usług chmurowych</Text><Text style={s.label}>Adres API</Text><TextInput accessibilityLabel="Adres API" autoCapitalize="none" autoCorrect={false} placeholder="https://twoj-serwer.pl" placeholderTextColor={C.muted} keyboardType="url" value={settings.apiUrl} onChangeText={apiUrl => { setSettings({ ...settings, apiUrl }); setConnectionResult(null); }} style={s.input} /><Text style={s.label}>Token dostępu serwera</Text><TextInput accessibilityLabel="Token dostępu serwera" secureTextEntry autoCapitalize="none" autoCorrect={false} value={settings.token} onChangeText={token => { setSettings({ ...settings, token }); setConnectionResult(null); }} placeholder="API_TOKEN z konfiguracji serwera" placeholderTextColor={C.muted} style={s.input} /><Text style={s.small}>Serwer pośredniczy w połączeniu z wybranym dostawcą. Nie zapisuje kluczy przekazanych przez aplikację.</Text><Button text="Sprawdź połączenie" secondary icon="wifi-outline" onPress={testConnection} />
           {connectionResult && <View accessibilityLiveRegion="polite" style={{ gap: 10 }}><Text style={s.cardTitle}>{connectionResult.message}</Text>{connectionResult.modelAvailable && <Text style={s.small}>Test sprawdza dostęp do modelu. Odczyt zdjęć jest osobną operacją i może podlegać limitom lub opłatom API.</Text>}</View>}
         </View>}
-        {managedAI ? <View style={s.sectionCard}><Chip>NOTELY AI</Chip><Text style={s.h2}>Gotowe do nauki</Text><Text style={s.body}>Zaloguj się do Notely i dodaj materiały. AI jest połączone automatycznie — bez kluczy i pobierania modeli.</Text><Button text="Sprawdź połączenie" secondary icon="wifi-outline" onPress={testConnection} />{connectionResult && <Text accessibilityLiveRegion="polite" style={s.body}>{connectionResult.message}</Text>}</View> : <Button text="Zapisz ustawienia" icon="save-outline" onPress={saveSettings} />}
+        {managedAI ? <View style={s.sectionCard}><Chip>NOTELY AI</Chip><Text style={s.h2}>Gotowe do nauki</Text><Text style={s.body}>Dodaj materiały i korzystaj z AI bez logowania, kluczy i pobierania modeli.</Text><Button text="Sprawdź połączenie" secondary icon="wifi-outline" onPress={testConnection} />{connectionResult && <Text accessibilityLiveRegion="polite" style={s.body}>{connectionResult.message}</Text>}</View> : <Button text="Zapisz ustawienia" icon="save-outline" onPress={saveSettings} />}
         <View style={s.sectionCard}><Text style={s.h2}>Twoje materiały</Text><Text style={s.body}>Lekcje, zdjęcia, podpisy i terminy powtórek zapisujemy na tym urządzeniu, osobno dla każdego konta. Możesz przechowywać lekcje bez AI. Synchronizacja między urządzeniami nie jest jeszcze dostępna.</Text><Text style={s.body}>AI przetwarza materiały po Twojej zgodzie na ekranie dodawania. Wynik zawsze sprawdź ze źródłem.</Text><Text style={s.small}>Notely · wersja testowa z lekcjami i wyborem AI</Text></View>
       </>}
     </ScrollView>}

@@ -1,5 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+test('Guest beta works without Supabase or bearer token and retains shared daily limits', async () => {
+  const server = createServer({ managed: true, allowGuest: true, token: 'unused-old-token', dailyTotalLimit: 1 });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const request = () => fetch(`http://127.0.0.1:${server.address().port}/api/vocabulary`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ terms: [] }) });
+    assert.equal((await request()).status, 400);
+    assert.equal((await request()).status, 429);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
 test('Managed beta verifies sessions, ignores client credentials and limits operations per user', async () => {
   const originalFetch = globalThis.fetch;
   const server = createServer({ managed: true, keys: { gemini: 'owner-fixture' }, dailyUserLimit: 1, verifyUser: async token => token === 'valid-session' ? 'user-1' : null });

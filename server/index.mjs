@@ -44,7 +44,7 @@ async function readBody(req) {
 export function createServer(config = {}) {
   const rate = new Map(); let active = 0;
   const daily = new Map();
-  const verifyUser = config.managed ? config.verifyUser || betaVerifier(config.supabaseUrl, config.supabaseKey) : null;
+  const verifyUser = config.managed && !config.allowGuest ? config.verifyUser || betaVerifier(config.supabaseUrl, config.supabaseKey) : null;
   return http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -65,7 +65,7 @@ export function createServer(config = {}) {
       try { userId = await verifyUser(token); }
       catch { return send(503, { error: 'Nie udało się sprawdzić logowania. Spróbuj ponownie.' }); }
       if (!userId) return send(401, { error: 'Sesja wygasła. Zaloguj się ponownie do Notely.' });
-    } else if (config.token) {
+    } else if (config.token && !config.allowGuest) {
       const actual = Buffer.from(req.headers.authorization || ''); const expected = Buffer.from(`Bearer ${config.token}`);
       if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return send(401, { error: 'Nieprawidłowy token serwera. Sprawdź Ustawienia.' });
     }
@@ -76,14 +76,15 @@ export function createServer(config = {}) {
     bucket.count++; rate.set(ip, bucket);
     // Eight photo reads followed by several material batches belong to one lesson.
     if (bucket.count > 30 || active >= 3) return send(429, { error: 'Za dużo żądań. Spróbuj ponownie za minutę.' });
-    if (userId && req.url !== '/api/check') {
+    if (config.managed && req.url !== '/api/check') {
+      const identity = userId || `guest:${ip}`;
       const reset = new Date().setUTCHours(24, 0, 0, 0);
       for (const [key, value] of daily) if (value.reset <= now) daily.delete(key);
-      const personal = daily.get(userId) || { count: 0, reset };
+      const personal = daily.get(identity) || { count: 0, reset };
       const total = daily.get('__total__') || { count: 0, reset };
       if (personal.count >= (config.dailyUserLimit || 100) || total.count >= (config.dailyTotalLimit || 500)) return send(429, { error: 'Dzisiejszy limit testów AI został wykorzystany. Wróć jutro; zapisane materiały nadal są dostępne.' });
       personal.count++; total.count++;
-      daily.set(userId, personal); daily.set('__total__', total);
+      daily.set(identity, personal); daily.set('__total__', total);
     }
     active++;
     const disconnected = new AbortController();
@@ -132,7 +133,9 @@ export function createServer(config = {}) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const host = process.env.HOST || '127.0.0.1';
   const managed = process.env.MANAGED_AI === 'true';
+  // Temporary public beta; set ALLOW_GUEST_AI=false to restore session checks.
+  const allowGuest = managed && process.env.ALLOW_GUEST_AI !== 'false';
   if (managed && !process.env.GEMINI_API_KEY) throw new Error('Tryb beta wymaga GEMINI_API_KEY na serwerze.');
   if (!managed && !['127.0.0.1', 'localhost', '::1'].includes(host) && !process.env.API_TOKEN) throw new Error('Ustaw API_TOKEN przed udostępnieniem serwera w sieci.');
-  createServer({ managed, supabaseUrl: process.env.SUPABASE_URL, supabaseKey: process.env.SUPABASE_PUBLISHABLE_KEY, dailyUserLimit: Number(process.env.AI_DAILY_USER_LIMIT) || 100, dailyTotalLimit: Number(process.env.AI_DAILY_TOTAL_LIMIT) || 500, key: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL, keys: { gemini: process.env.GEMINI_API_KEY, claude: process.env.ANTHROPIC_API_KEY }, token: process.env.API_TOKEN, origin: process.env.WEB_ORIGIN || 'http://localhost:8081' }).listen(Number(process.env.PORT || 3001), host, () => console.log(`Notely API: http://${host}:${process.env.PORT || 3001}`));
+  createServer({ managed, allowGuest, supabaseUrl: process.env.SUPABASE_URL, supabaseKey: process.env.SUPABASE_PUBLISHABLE_KEY, dailyUserLimit: Number(process.env.AI_DAILY_USER_LIMIT) || 100, dailyTotalLimit: Number(process.env.AI_DAILY_TOTAL_LIMIT) || 500, key: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL, keys: { gemini: process.env.GEMINI_API_KEY, claude: process.env.ANTHROPIC_API_KEY }, token: process.env.API_TOKEN, origin: process.env.WEB_ORIGIN || 'http://localhost:8081' }).listen(Number(process.env.PORT || 3001), host, () => console.log(`Notely API: http://${host}:${process.env.PORT || 3001}`));
 }

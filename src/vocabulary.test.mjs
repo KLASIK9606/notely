@@ -24,3 +24,16 @@ test('Never drops incomplete lines or silently saves empty answers', () => {
   assert.throws(() => vocabularyNote('apple — [nieczytelne]', '', [], 'words'), /Uzupełnij/);
   assert.throws(() => vocabularyNote('[niepewne] — jabłko', '', [], 'words'), /Uzupełnij/);
 });
+import { applyVocabularyTranslations } from './vocabulary.ts';
+
+test('Automatic translations retain full Spanish sentences, existing pairs and duplicate rows', () => {
+  const text = 'la casa\nMe gustaría un café.\napple — jabłko\nla casa';
+  const translated = applyVocabularyTranslations(text, [
+    { term: 'la casa', answer: 'dom' },
+    { term: 'Me gustaría un café.', answer: 'Poproszę kawę.' },
+    { term: 'la casa', answer: 'dom' },
+  ]);
+  assert.equal(translated, 'la casa — dom\nMe gustaría un café. — Poproszę kawę.\napple — jabłko\nla casa — dom');
+  assert.throws(() => applyVocabularyTranslations(text, [{ term: 'wrong row', answer: 'dom' }]));
+  assert.equal(applyVocabularyTranslations('[niepewne]', [{ term: '[niepewne]', answer: 'dom' }]), '[niepewne]');
+});

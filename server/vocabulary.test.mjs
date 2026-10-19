@@ -15,6 +15,17 @@ test('Vocabulary preserves original spellings, duplicates and order independentl
   assert.deepEqual(result.entries, [{ term: 'Apple', answer: 'jabłko' }, { term: 'potato 🥔', answer: 'ziemniak' }, { term: 'Apple', answer: 'jabłko' }]);
 });
 
+test('Translation instructions cover entire Spanish sentences, context and imperatives as data', async () => {
+  const terms = ['No tengo dinero.', 'Abre la puerta.'];
+  const result = await translateVocabulary({}, { terms }, async (_config, _ai, _schema, _name, instructions) => {
+    assert.match(instructions, /całe zdanie/);
+    assert.match(instructions, /przeczenia/);
+    assert.match(instructions, /Tryb rozkazujący/);
+    return { entries: [{ index: 0, answer: 'Nie mam pieniędzy.' }, { index: 1, answer: 'Otwórz drzwi.' }] };
+  });
+  assert.deepEqual(result.entries, [{ term: terms[0], answer: 'Nie mam pieniędzy.' }, { term: terms[1], answer: 'Otwórz drzwi.' }]);
+});
+
 test('Missing, duplicate and reordered vocabulary results never create a partial set silently', async () => {
   const terms = ['apple', 'potato'];
   for (const entries of [[{ index: 0, answer: 'jabłko' }], [{ index: 1, answer: 'ziemniak' }, { index: 0, answer: 'jabłko' }], [{ index: 0, answer: 'jabłko' }, { index: 0, answer: 'jabłko' }], [{ index: 0, answer: null }, { index: 1, answer: 'ziemniak' }]]) {
