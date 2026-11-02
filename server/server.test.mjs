@@ -120,7 +120,7 @@ test('Rejects empty OCR and out-of-range uncertainty lines', () => {
 });
 test('Health, authorization and missing AI key return clear responses', async () => {
   await withServer({ token: 'test-token' }, async (post, url) => {
-    assert.deepEqual(await (await fetch(url + '/health')).json(), { ok: true, aiConfigured: false, vocabularyLanguages: ['pl', 'en', 'es', 'de', 'fr', 'it'] });
+    assert.deepEqual(await (await fetch(url + '/health')).json(), { ok: true, aiConfigured: false, vocabularyLanguages: ['pl', 'en', 'es', 'de', 'fr', 'it'], ocrValidation: 2 });
     assert.equal((await post('/api/transcribe', { files: [png] })).status, 401);
     const response = await post('/api/transcribe', { files: [png] }, 'test-token');
     assert.equal(response.status, 503); assert.match((await response.json()).error, /klucza OpenAI/);

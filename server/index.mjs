@@ -56,7 +56,7 @@ export function createServer(config = {}) {
     }
     const send = (status, body) => { if (res.destroyed || res.writableEnded) return; res.writeHead(status); res.end(JSON.stringify(body)); };
     if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
-    if (req.url === '/health' && req.method === 'GET') return send(200, { ok: true, aiConfigured: Boolean(config.key || config.keys?.gemini || config.keys?.claude), vocabularyLanguages: ['pl', 'en', 'es', 'de', 'fr', 'it'] });
+    if (req.url === '/health' && req.method === 'GET') return send(200, { ok: true, aiConfigured: Boolean(config.key || config.keys?.gemini || config.keys?.claude), vocabularyLanguages: ['pl', 'en', 'es', 'de', 'fr', 'it'], ocrValidation: 2 });
     if (req.method !== 'POST' || !['/api/transcribe', '/api/materials', '/api/vocabulary', '/api/audio', '/api/check', '/api/teacher', '/api/teacher/speech'].includes(req.url)) return send(404, { error: 'Nie znaleziono tej funkcji.' });
     let userId;
     if (verifyUser) {
@@ -117,7 +117,7 @@ export function createServer(config = {}) {
         send(200, pdf ? { ...result, sourceMode: 'pdf-notes' } : result);
       } else {
         if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 200 || typeof body.subject !== 'string' || body.subject.length > 100 || !Array.isArray(body.lines) || !body.lines.length || body.lines.length > 200 || !body.lines.every(l => typeof l === 'string' && l.length <= 4000) || body.lines.join('').length > 60000) throw failure(400, 'Notatka jest pusta, zbyt długa lub nieprawidłowa.');
-        if (body.lines.some(l => /\[nieczytelne\]/i.test(l))) throw failure(400, 'Popraw albo usuń fragmenty oznaczone [nieczytelne] przed tworzeniem materiałów.');
+        if (body.lines.some(l => /\[(?:nieczytelne|niepewne)[^\]]*\]/i.test(l))) throw failure(400, 'Popraw albo usuń fragmenty oznaczone [nieczytelne] lub [niepewne] przed tworzeniem materiałów.');
         if (!body.lines.some(l => l.trim())) throw failure(400, 'Dodaj treść notatki.');
         const text = JSON.stringify({ title: body.title, subject: body.subject, numberedLines: body.lines.map((text, i) => ({ line: i + 1, text })) });
         const result = await callModel(config, body.ai, materialsSchema, 'study_materials', studyNotePrompt(), [{ type: 'input_text', text }]);

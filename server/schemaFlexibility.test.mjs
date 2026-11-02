@@ -15,3 +15,12 @@ test('Optional study aids remain fully validated when present', () => {
   assert.equal(validMaterials({ ...note, mindMap: { center: 'Ziemniak', branches: [{ label: 'Budowa', children: ['Łodyga'], sourceLines: [99] }] } }, lines), false);
   assert.equal(validMaterials({ ...note, sections: Array(31).fill(note.sections[0]) }, lines), false);
 });
+
+test('Quiz choices cannot differ only in casing, surrounding whitespace or Unicode composition', () => {
+  const quiz = options => ({ ...note, quiz: [{ question: 'Czym jest bulwa?', options, correctIndex: 0, explanation: lines[0], sourceLines: [1] }] });
+  assert.equal(validMaterials(quiz(['Łodygą', ' łodygą ', 'Korzeniem', 'Kwiatem']), lines), false);
+  assert.equal(validMaterials(quiz(['año', 'an\u0303o', 'ano', 'día']), lines), false);
+  assert.equal(validMaterials(quiz(['Łodygą', 'Korzeniem', 'Liściem', 'Kwiatem']), lines), true);
+  assert.equal(validMaterials(note, [null]), false);
+  assert.equal(validMaterials(note, []), false);
+});

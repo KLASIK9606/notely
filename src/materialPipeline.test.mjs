@@ -12,7 +12,8 @@ test('Eight dense photo reads merge fully and generate all batches with correct 
   assert.equal(note.lines.at(-1), 'Zdjęcie 8, wiersz 200');
   assert.deepEqual(note.uncertainties.map(item => item.line), [200, 400, 600, 800, 1000, 1200, 1400, 1600]);
   const sent = [], progress = [];
-  const result = await generateMaterialBatches(note, async part => { sent.push(...part.lines); return fixture(part.lines); }, { onProgress: label => progress.push(label) });
+  // The user reviewed all uncertainty markers before generating study materials.
+  const result = await generateMaterialBatches({ ...note, uncertainties: [] }, async part => { sent.push(...part.lines); return fixture(part.lines); }, { onProgress: label => progress.push(label) });
   assert.deepEqual(sent, note.lines);
   assert.equal(result.flashcards.length, 8);
   assert.deepEqual(result.flashcards.map(card => card.sourceLines[0]), [200, 400, 600, 800, 1000, 1200, 1400, 1600]);
@@ -43,4 +44,34 @@ test('Cancellation prevents later batches and invalid source references are reje
   await assert.rejects(generateMaterialBatches(note, async part => { calls++; controller.abort(); return fixture(part.lines); }, { signal: controller.signal }), { name: 'AbortError' });
   assert.equal(calls, 1);
   await assert.rejects(generateMaterialBatches(note, async part => ({ ...fixture(part.lines), flashcards: [{ question: 'Q', answer: 'A', sourceLines: [9999] }] })), /odwołania/);
+});
+
+test('Unreviewed handwriting and unreadable placeholders never reach any generation call', async () => {
+  const base = { title: 'Notatka', subject: 'Biologia', uncertainties: [], lines: ['Czytelna treść'] };
+  let calls = 0;
+  const send = async part => { calls++; return fixture(part.lines); };
+  for (const note of [
+    { ...base, uncertainties: [{ line: 1, reason: 'Niepewna data' }] },
+    { ...base, lines: ['Fragment [nieczytelne]'] },
+    { ...base, lines: ['Słowo [niepewne: bulwa]'] },
+  ]) await assert.rejects(generateMaterialBatches(note, send), /niejasne/);
+  assert.equal(calls, 0);
+});
+
+test('Blank line references are rejected while subsequent global line numbers remain intact', async () => {
+  const note = { title: 'Notatka', subject: 'Biologia', uncertainties: [], lines: ['Czytelna treść', '', 'Końcowa treść'] };
+  await assert.rejects(generateMaterialBatches(note, async part => ({ ...fixture(part.lines), flashcards: [{ question: 'Q', answer: 'A', sourceLines: [2] }] })), /odwołania/);
+  const result = await generateMaterialBatches(note, async part => fixture(part.lines));
+  assert.deepEqual(result.flashcards[0].sourceLines, [3]);
+});
+
+test('Graph IDs are separated across batches and split paragraphs retain their original evidence', async () => {
+  const note = { title: 'Notatka', subject: 'Biologia', uncertainties: [], lines: ['x'.repeat(65000), 'Koniec'] };
+  const result = await generateMaterialBatches(note, async part => ({ ...fixture(part.lines), mindMap: { center: 'Temat', layout: 'tree', layoutReason: 'Zależności', branches: [], nodes: [{ id: 'root', parentId: '', label: 'Korzeń', detail: '', sourceLines: [1] }, { id: 'child', parentId: 'root', label: 'Gałąź', detail: '', sourceLines: [part.lines.length] }] } }));
+  assert.equal(result.mindMap.nodes.length, 4);
+  assert.equal(new Set(result.mindMap.nodes.map(node => node.id)).size, 4);
+  assert.equal(result.mindMap.nodes[1].parentId, result.mindMap.nodes[0].id);
+  assert.equal(result.mindMap.nodes[3].parentId, result.mindMap.nodes[2].id);
+  assert.deepEqual(result.mindMap.nodes[0].sourceLines, [1]);
+  assert.deepEqual(result.mindMap.nodes.at(-1).sourceLines, [2]);
 });

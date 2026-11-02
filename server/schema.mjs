@@ -44,6 +44,7 @@ export function validTranscription(value) {
   return validateSchema(value, transcriptionSchema) && value.title.trim() && value.lines.length > 0 && value.lines.length <= 200 && value.lines.some(l => l.trim()) && value.uncertainties.every(u => u.line >= 1 && u.line <= value.lines.length);
 }
 export function validMaterials(value, lines) {
+  if (!Array.isArray(lines) || !lines.length || !lines.every(line => typeof line === 'string') || !lines.some(line => line.trim())) return false;
   const extended = value?.mindMap?.nodes !== undefined || value?.mindMap?.layout !== undefined;
   const schema = extended ? (value.mindMap.layoutReason === undefined ? previousGraphSchema : materialsSchema) : legacyMaterialsSchema;
   if (!validateSchema(value, schema) || !value.summary.trim()) return false;
@@ -52,5 +53,5 @@ export function validMaterials(value, lines) {
   if (!value.sections.length || groups.some(g => g.length > 30)) return false;
   if (!groups.flat().every(v => v.sourceLines.length > 0 && v.sourceLines.every(i => i >= 1 && i <= lines.length && lines[i - 1].trim()))) return false;
   if (!value.sections.every(s => s.heading.trim() && s.body.trim()) || !value.flashcards.every(c => c.question.trim() && c.answer.trim()) || !value.mindMap.center.trim() || !value.mindMap.branches.every(b => b.label.trim() && b.children.length && b.children.every(c => c.trim()))) return false;
-  return value.quiz.every(q => q.question.trim() && q.explanation.trim() && q.options.length === 4 && q.options.every(o => o.trim()) && new Set(q.options).size === 4 && q.correctIndex >= 0 && q.correctIndex < 4);
+  return value.quiz.every(q => q.question.trim() && q.explanation.trim() && q.options.length === 4 && q.options.every(o => o.trim()) && new Set(q.options.map(option => option.normalize('NFC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase())).size === 4 && q.correctIndex >= 0 && q.correctIndex < 4);
 }
