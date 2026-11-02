@@ -11,7 +11,7 @@ export type Materials = {
   mindMap: { center: string; branches: ({ label: string; children: string[] } & Evidence)[]; layout?: MapLayout; nodes?: MapNode[]; layoutReason?: string };
 };
 export type Review = { due: string; interval: number; stage?: 'learning' | 'review' | 'relearning'; step?: number; successes?: number; failures?: number; streak?: number; lapses?: number; lastReviewed?: string; lastGrade?: 'again' | 'good' };
-export type Note = Transcription & { id: string; kind?: 'vocabulary'; createdAt: string; sources: Source[]; materials: Materials; lessonId?: string; reviews: Record<string, Review> };
+export type Note = Transcription & { id: string; kind?: 'vocabulary'; createdAt: string; sources: Source[]; materials: Materials; lessonId?: string; reviews: Record<string, Review>; starredCards?: number[] };
 export type Lesson = { id: string; title: string; subject: string; number: number; createdAt: string; sources: Source[]; noteId?: string; transcription?: Transcription; autoTitle?: boolean };
 export type CloudProvider = 'openai' | 'gemini' | 'claude';
 export type Provider = 'local' | CloudProvider;

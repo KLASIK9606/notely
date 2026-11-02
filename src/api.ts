@@ -8,6 +8,8 @@ import { googleAIAccess } from './googleAI';
 import { generateMaterialBatches } from './materialPipeline';
 import { readableSourceBlob, uploadFilename } from './sourceRead';
 import { sourceLimit } from './sourcePolicy';
+import { vocabularyBatches } from './vocabularyBatch';
+import type { TranslationOptions } from './translationOptions';
 import { managedAI, requireAILogin } from './betaConfig';
 import { supabase } from './auth';
 
@@ -126,17 +128,19 @@ export async function transcribe(settings: Settings, sources: Source[], keys?: A
 export const generate = (settings: Settings, note: Transcription, keys?: ApiKeys, controls: OcrControls = {}) => generateMaterialBatches(note, part => settings.provider === 'local' ? generateLocal(part) : request<Materials>(settings, '/api/materials', { title: part.title, subject: part.subject, lines: part.lines, ai: cloudOptions(settings, keys) }, controls.signal), controls);
 
 export type VocabularyEntry = { term: string; answer: string };
-export async function generateVocabulary(terms: string[], settings: Settings, keys?: ApiKeys, signal?: AbortSignal, onProgress?: (label: string, entries: VocabularyEntry[]) => void): Promise<VocabularyEntry[]> {
+export async function generateVocabulary(terms: string[], settings: Settings, keys?: ApiKeys, signal?: AbortSignal, onProgress?: (label: string, entries: VocabularyEntry[]) => void, options: TranslationOptions = {}): Promise<VocabularyEntry[]> {
   if (settings.provider === 'local') throw new Error('Możesz zapisać własne pary bez AI. Automatyczne tłumaczenie samych słówek wymaga skonfigurowanej usługi chmurowej.');
   const ai = cloudOptions(settings, keys);
   const entries: VocabularyEntry[] = [];
-  for (let offset = 0; offset < terms.length; offset += 30) {
+  let offset = 0;
+  for (const batch of vocabularyBatches(terms)) {
     checkOcrCancelled(signal);
     const batch = terms.slice(offset, offset + 30);
     onProgress?.(`Tłumaczę słówka ${offset + 1}–${offset + batch.length} z ${terms.length}…`, [...entries]);
-    const result = await request<{ entries: VocabularyEntry[] }>(settings, '/api/vocabulary', { terms: batch, ai }, signal);
+    const result = await request<{ entries: VocabularyEntry[] }>(settings, '/api/vocabulary', { terms: batch, ai, ...options }, signal);
     if (!Array.isArray(result.entries) || result.entries.length !== batch.length || !result.entries.every((entry, i) => entry?.term === batch[i] && typeof entry.answer === 'string')) throw new Error('AI zwróciło niepełną listę odpowiedzi. Sprawdź słówka przed zapisaniem.');
     entries.push(...result.entries);
+    offset += batch.length;
     onProgress?.(`Gotowe ${entries.length} z ${terms.length} słówek`, [...entries]);
   }
   return entries;

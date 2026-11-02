@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Note } from './types';
 import { C, Empty } from './ui';
 import { buildQuizPages, paginateQuizText } from './quizLayout';
+import { nextQuizIndex } from './quizNavigation';
 
 export function Quiz({ note, onEvidence }: { note: Note; onEvidence: (lines: number[]) => void }) {
   const [position, setPosition] = useState(0);
@@ -33,10 +34,10 @@ export function Quiz({ note, onEvidence }: { note: Note; onEvidence: (lines: num
   const choose = (index: number) => setAnswers(old => old.length === position ? [...old, index] : old);
   const next = () => {
     if (finished) {
-      if (resultsIndex < questions.length - 1) { setResultsIndex(old => old + 1); setPageIndex(0); }
+      if (resultsIndex < questions.length - 1) { setResultsIndex(old => nextQuizIndex(old, resultsIndex, questions.length - 1)); setPageIndex(0); }
       else { setAnswers([]); setPosition(0); setResultsIndex(0); }
-    } else if (answered) { setPosition(old => Math.min(old + 1, questions.length)); setPageIndex(0); }
-    else setPageIndex(old => Math.min(old + 1, pages.length - 1));
+    } else if (answered) { setPosition(old => nextQuizIndex(old, position, questions.length)); setPageIndex(0); }
+    else setPageIndex(old => nextQuizIndex(old, pageIndex, pages.length - 1));
   };
   const action = finished ? resultsIndex < questions.length - 1 ? 'Kolejna odpowiedź' : 'Powtórz quiz' : answered ? position === questions.length - 1 ? 'Zobacz wynik' : 'Następne pytanie' : 'Czytaj dalej';
   return <View style={q.root}>
@@ -61,7 +62,7 @@ export function Quiz({ note, onEvidence }: { note: Note; onEvidence: (lines: num
       {pageCount > 1 && <View style={q.pagination}>
         <Pressable accessibilityRole="button" accessibilityLabel="Poprzednia strona treści" disabled={safePage === 0} onPress={() => setPageIndex(old => Math.max(0, old - 1))} style={[q.pageButton, safePage === 0 && q.disabled]}><Ionicons name="chevron-back" size={22} color={C.green} /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={showingFeedback ? 'Wróć do początku wyjaśnienia' : 'Wróć do pytania'} onPress={() => setPageIndex(0)} style={q.pageButton}><Text style={q.pageLabel}>{showingFeedback ? 'Treść' : 'Pytanie'} {safePage + 1}/{pageCount}</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Następna strona treści" disabled={safePage >= pageCount - 1} onPress={() => setPageIndex(old => Math.min(pageCount - 1, old + 1))} style={[q.pageButton, safePage >= pageCount - 1 && q.disabled]}><Ionicons name="chevron-forward" size={22} color={C.green} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Następna strona treści" disabled={safePage >= pageCount - 1} onPress={() => setPageIndex(old => nextQuizIndex(old, pageIndex, pageCount - 1))} style={[q.pageButton, safePage >= pageCount - 1 && q.disabled]}><Ionicons name="chevron-forward" size={22} color={C.green} /></Pressable>
       </View>}
       {(showingFeedback || !page?.options.length) && <Pressable accessibilityRole="button" onPress={next} style={({ pressed }) => [q.next, pressed && { opacity: .8 }]}><Text style={q.nextText}>{action}</Text><Ionicons name="arrow-forward" size={21} color={C.white} /></Pressable>}
       {!showingFeedback && !!page?.options.length && <Text style={q.hint}>Dotknij wybranej odpowiedzi</Text>}

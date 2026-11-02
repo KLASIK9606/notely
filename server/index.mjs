@@ -56,7 +56,7 @@ export function createServer(config = {}) {
     }
     const send = (status, body) => { if (res.destroyed || res.writableEnded) return; res.writeHead(status); res.end(JSON.stringify(body)); };
     if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
-    if (req.url === '/health' && req.method === 'GET') return send(200, { ok: true, aiConfigured: Boolean(config.key || config.keys?.gemini || config.keys?.claude) });
+    if (req.url === '/health' && req.method === 'GET') return send(200, { ok: true, aiConfigured: Boolean(config.key || config.keys?.gemini || config.keys?.claude), vocabularyLanguages: ['pl', 'en', 'es', 'de', 'fr', 'it'] });
     if (req.method !== 'POST' || !['/api/transcribe', '/api/materials', '/api/vocabulary', '/api/audio', '/api/check', '/api/teacher', '/api/teacher/speech'].includes(req.url)) return send(404, { error: 'Nie znaleziono tej funkcji.' });
     let userId;
     if (verifyUser) {

@@ -25,6 +25,10 @@ import { AISettings } from './src/aiSettingsUI';
 import { googleAIAccess } from './src/googleAI';
 import { restoreSources, saveWebSource, deleteWebSource } from './src/sourceStorage';
 import { Flashcards, MindMap, Quiz } from './src/study';
+import { StudyHub } from './src/StudyHub';
+import { WrittenPractice } from './src/writtenPracticeUI';
+import { MatchPractice } from './src/matchPracticeUI';
+import { selectedCardIndices, StudyFilter } from './src/studySelection';
 import { StudyNote } from './src/studyNote';
 import { TranscriptionReviewLines } from './src/transcriptionReviewUI';
 import { omitTranscriptionLines, unresolvedLines } from './src/transcriptionReview';
@@ -37,12 +41,15 @@ import { Teacher } from './src/teacherUI';
 import { AccountBoundary } from './src/accountUI';
 import { accountStorageKey } from './src/accountPolicy';
 import { VocabularyEditor } from './src/vocabularyUI';
-import { parseVocabulary, vocabularyNote, applyVocabularyTranslations } from './src/vocabulary';
+import { parseVocabulary, vocabularyNote, applyVocabularyTranslations, VocabularyFormat } from './src/vocabulary';
+import { importVocabularyText, VOCABULARY_TEXT_LIMIT } from './src/vocabularyImport';
+import { vocabularyQuiz } from './src/vocabularyQuiz';
+import { translationLanguages, TranslationLanguage } from './src/translationOptions';
 import { C, s, Button, Chip, Empty, Evidence, Icon, countLabel } from './src/ui';
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 type Screen = 'home' | 'import' | 'review' | 'study' | 'settings' | 'lesson' | 'teacher' | 'vocabulary';
-type StudyTab = 'Notatka' | 'Fiszki' | 'Mapa' | 'Quiz';
+type StudyTab = 'Notatka' | 'Nauka' | 'Fiszki' | 'Mapa' | 'Quiz' | 'Pisanie' | 'Pary';
 
 function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; accountLabel: string; onAccount: () => void }) {
   const STORE = accountStorageKey('notely.notes.v1', owner);
@@ -65,6 +72,10 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
   const [sources, setSources] = useState<Source[]>([]);
   const [vocabularyText, setVocabularyText] = useState('');
   const [vocabularySources, setVocabularySources] = useState<Source[]>([]);
+  const [vocabularyLanguage, setVocabularyLanguage] = useState<TranslationLanguage>('pl');
+  const [vocabularyContext, setVocabularyContext] = useState('');
+  const [vocabularyFormat, setVocabularyFormat] = useState<VocabularyFormat>('auto');
+  const parseCurrentVocabulary = (text: string) => parseVocabulary(text, vocabularyFormat);
   const [vocabularyTitle, setVocabularyTitle] = useState('');
   const [vocabularyReadIds, setVocabularyReadIds] = useState<string[]>([]);
   const [draft, setDraft] = useState<Transcription | null>(null);
@@ -72,6 +83,8 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
   const [consent, setConsent] = useState(false);
   const [selected, setSelected] = useState<string>(demo.id);
   const [tab, setTab] = useState<StudyTab>('Notatka');
+  const [studyFilter, setStudyFilter] = useState<StudyFilter>('all');
+  const [reverseStudy, setReverseStudy] = useState(false);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +113,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
   const recordingCopies = useRef(new Map<string, Source>());
   const note = notes.find(n => n.id === selected);
   const evidenceNote = note;
+  const quizNote = note?.kind === 'vocabulary' && !note.materials.quiz.length ? { ...note, materials: { ...note.materials, quiz: vocabularyQuiz(note.materials.flashcards) } } : note;
 
   useEffect(() => {
     (async () => {
@@ -119,7 +133,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
         setKeys(savedKeys);
         if (savedLessons) { const savedItems = JSON.parse(savedLessons); if (!Array.isArray(savedItems) || !savedItems.every(l => l && typeof l.title === 'string' && typeof l.subject === 'string' && Array.isArray(l.sources))) throw new Error('Invalid lessons'); setLessons(await Promise.all(savedItems.map(async (l: Lesson) => ({ ...l, sources: await restoreSources(l.sources) })))); }
         const savedVocabulary = await AsyncStorage.getItem(VOCABULARY);
-        if (savedVocabulary) { const v = JSON.parse(savedVocabulary); setVocabularyText(typeof v.text === 'string' ? v.text : ''); setVocabularyTitle(typeof v.title === 'string' ? v.title : ''); setVocabularySources(await restoreSources(Array.isArray(v.sources) ? v.sources : [])); setVocabularyReadIds(Array.isArray(v.readIds) ? v.readIds : []); }
+        if (savedVocabulary) { const v = JSON.parse(savedVocabulary); setVocabularyText(typeof v.text === 'string' ? v.text : ''); setVocabularyTitle(typeof v.title === 'string' ? v.title : ''); setVocabularySources(await restoreSources(Array.isArray(v.sources) ? v.sources : [])); setVocabularyReadIds(Array.isArray(v.readIds) ? v.readIds : []); if (Object.hasOwn(translationLanguages, v.targetLanguage)) setVocabularyLanguage(v.targetLanguage); if (typeof v.context === 'string') setVocabularyContext(v.context.slice(0, 500)); if (['auto', 'terms', 'pairs'].includes(v.format)) setVocabularyFormat(v.format); }
         if (savedDraft) { const value = JSON.parse(savedDraft); if (Array.isArray(value.sources)) { setDraft(value.draft || null); setSources(await restoreSources(value.sources)); setLessonId(value.lessonId || null);  if (value.meta) { setLessonTitle(value.meta.title || ''); setLessonSubject(value.meta.subject || 'Notatki'); setLessonNumber(value.meta.number || '1'); } } }
       } catch { setStorageWritable(false); setError('Nie udało się odczytać zapisanych danych. Nie nadpisujemy ich. Sprawdź pamięć urządzenia przed dalszą pracą.'); }
       finally { setReady(true); }
@@ -135,7 +149,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
     const next = lessons.map(l => l.id === lessonId ? { ...l, transcription: draft } : l);
     setLessons(next); AsyncStorage.setItem(LESSONS, JSON.stringify(next)).catch(() => setStorageError(true));
   }, [draft, sources, lessonId, lessons, ready, storageWritable]);
-  useEffect(() => { if (ready && storageWritable) AsyncStorage.setItem(VOCABULARY, JSON.stringify({ text: vocabularyText, title: vocabularyTitle, sources: vocabularySources, readIds: vocabularyReadIds })).catch(() => setStorageError(true)); }, [vocabularyText, vocabularyTitle, vocabularySources, vocabularyReadIds, ready, storageWritable]);
+  useEffect(() => { if (ready && storageWritable) AsyncStorage.setItem(VOCABULARY, JSON.stringify({ text: vocabularyText, title: vocabularyTitle, sources: vocabularySources, readIds: vocabularyReadIds, targetLanguage: vocabularyLanguage, context: vocabularyContext, format: vocabularyFormat })).catch(() => setStorageError(true)); }, [vocabularyText, vocabularyTitle, vocabularySources, vocabularyReadIds, vocabularyLanguage, vocabularyContext, vocabularyFormat, ready, storageWritable]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 4000); return () => clearTimeout(timer); }, [toast]);
 
   async function task(label: string, action: () => Promise<void>) {
@@ -147,7 +161,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
   }
   function updateNote(updated: Note) { setNotes(old => old.map(n => n.id === updated.id ? updated : n)); }
   function openMaterial(item: LibraryItem) { if (item.note) openNote(item.note); else if (item.lesson) openLesson(item.lesson); }
-  function openNote(n: Note) { setSelected(n.id); setTab(n.kind === 'vocabulary' ? 'Fiszki' : 'Notatka'); setScreen('study'); }
+  function openNote(n: Note) { setStudyFilter('all'); setReverseStudy(false); setSelected(n.id); setTab(n.kind === 'vocabulary' ? 'Nauka' : 'Notatka'); setScreen('study'); }
   function openLesson(lesson: Lesson) { setLessonId(lesson.id); setLessonTitle(lesson.autoTitle ? '' : lesson.title); setLessonSubject(lesson.subject); setLessonNumber(String(lesson.number)); setSources(lesson.sources); setDraft(lesson.transcription || null); setChecked(false); setConsent(false); setScreen('lesson'); }
   async function ensureLesson(lessonSources = sources, lessonDraft = draft): Promise<Lesson> {
     if (!storageWritable) throw new Error('Nie można zapisać danych w pamięci urządzenia.');
@@ -176,42 +190,45 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
         const text = [vocabularyText.trim(), lines.join('\n')].filter(Boolean).join('\n');
         setVocabularyText(text);
         setVocabularyReadIds(old => [...new Set([...old, ...pending.map(source => source.id)])]);
-        if (!/\[(?:nieczytelne|niepewne)\]/i.test(text) && parseVocabulary(text).missing.length) await translateVocabularyText(text, controller);
+        if (!/\[(?:nieczytelne|niepewne)\]/i.test(text) && parseCurrentVocabulary(text).missing.length) await translateVocabularyText(text, controller);
         setToast('Lista odczytana. Sprawdź tłumaczenia i kliknij „Zrób fiszki”.');
       } finally { if (ocrAbort.current === controller) ocrAbort.current = null; }
     });
   }
   async function translateVocabularyText(text: string, controller: AbortController) {
-    const parsed = parseVocabulary(text);
+    const parsed = parseCurrentVocabulary(text);
     if (!parsed.missing.length) return text;
     if (settings.provider !== 'local' && !consent) throw new Error('Zaznacz zgodę na przetworzenie słówek przez AI.');
     if (/\[(?:nieczytelne|niepewne)\]/i.test(text)) throw new Error('Najpierw popraw oznaczone słowa ze zdjęcia.');
     const answers = await generateVocabulary(parsed.missing.map(row => row.text), settings, keys, controller.signal, (label, partial) => {
       setBusy(label);
-      if (!controller.signal.aborted) setVocabularyText(applyVocabularyTranslations(text, partial));
-    });
+      if (!controller.signal.aborted) setVocabularyText(applyVocabularyTranslations(text, partial, vocabularyFormat));
+    }, { targetLanguage: vocabularyLanguage, context: vocabularyContext });
     if (controller.signal.aborted) throw new Error('Tłumaczenie anulowane. Lista pozostała zachowana.');
-    const translated = applyVocabularyTranslations(text, answers);
+    const translated = applyVocabularyTranslations(text, answers, vocabularyFormat);
     setVocabularyText(translated);
     return translated;
   }
   async function completeVocabulary() {
-    await task('Uzupełniam znaczenia słówek…', async () => {
-      const parsed = parseVocabulary(vocabularyText);
-      if (/\[(?:nieczytelne|niepewne)\]/i.test(vocabularyText)) throw new Error('Najpierw sprawdź oznaczone wiersze ze zdjęciem. AI nie będzie zgadywać nieczytelnych słówek.');
-      if (!parsed.missing.length) return;
+    await task('Tłumaczę listę…', async () => {
       const controller = new AbortController(); ocrAbort.current = controller;
-      try {
-        const applyAnswers = (answers: { term: string; answer: string }[]) => {
-          const lines = [...parsed.lines];
-          answers.forEach((answer, i) => { if (answer.answer.trim()) lines[parsed.missing[i].line - 1] = `${parsed.missing[i].text} — ${answer.answer}`; });
-          setVocabularyText(lines.join('\n'));
-        };
-        const answers = await generateVocabulary(parsed.missing.map(row => row.text), settings, keys, controller.signal, (label, partial) => { setBusy(label); if (!controller.signal.aborted) applyAnswers(partial); });
-        if (controller.signal.aborted) return;
-        applyAnswers(answers); setToast('Sprawdź znaczenia przed zapisaniem. Nierozpoznane słowa uzupełnij ręcznie.');
-      } finally { if (ocrAbort.current === controller) ocrAbort.current = null; }
+      try { await translateVocabularyText(vocabularyText, controller); setToast('Tłumaczenia gotowe. Sprawdź listę przed zapisaniem.'); }
+      finally { if (ocrAbort.current === controller) ocrAbort.current = null; }
     });
+  }
+  async function pickVocabularyText() {
+    if (recordingLock.current || gate.current || !storageWritable) return;
+    await picker.start(() => DocumentPicker.getDocumentAsync({ type: ['text/plain', 'text/csv', 'text/tab-separated-values', 'application/vnd.ms-excel'], multiple: false, copyToCacheDirectory: true, base64: false }), async (result, isCurrent) => {
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if ((asset.size || 0) > VOCABULARY_TEXT_LIMIT) throw new Error('Lista słówek może mieć maksymalnie 1 MB.');
+      const raw = Platform.OS === 'web' ? asset.file ? await asset.file.text() : await (await fetch(asset.uri)).text() : await new File(asset.uri).text();
+      const imported = importVocabularyText(asset.name, raw);
+      if (!isCurrent()) return;
+      setVocabularyText(old => [old.trim(), imported].filter(Boolean).join('\n'));
+      if (!vocabularyTitle.trim()) setVocabularyTitle(asset.name.replace(/\.[^.]+$/, ''));
+      setConsent(false); setToast('Lista zaimportowana. Zaznacz zgodę i kliknij „Przetłumacz i zrób fiszki”.');
+    }, { waiting: 'Wybierz listę TXT, CSV lub TSV', processing: 'Importuję listę słówek…' });
   }
   async function saveVocabulary() {
     await task('Zapisuję cały zestaw fiszek…', async () => {
@@ -219,8 +236,8 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
       let text;
       try { text = await translateVocabularyText(vocabularyText, controller); }
       finally { if (ocrAbort.current === controller) ocrAbort.current = null; }
-      if (parseVocabulary(text).missing.length) throw new Error('AI nie rozpoznało wszystkich słów. Lista została zachowana — uzupełnij brakujące tłumaczenia i spróbuj ponownie.');
-      const newNote = vocabularyNote(text, vocabularyTitle, vocabularySources, uid());
+      if (parseCurrentVocabulary(text).missing.length) throw new Error('AI nie rozpoznało wszystkich słów. Lista została zachowana — uzupełnij brakujące tłumaczenia i spróbuj ponownie.');
+      const newNote = vocabularyNote(text, vocabularyTitle, vocabularySources, uid(), vocabularyFormat);
       const next = [newNote, ...notes];
       await AsyncStorage.setItem(STORE, JSON.stringify(next));
       await AsyncStorage.removeItem(VOCABULARY);
@@ -327,7 +344,7 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
     if (recordingLock.current || gate.current || !storageWritable) return;
     await picker.start(() => DocumentPicker.getDocumentAsync({ type: audioOnly ? ['audio/*'] : ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'audio/*'], multiple: true, copyToCacheDirectory: true, base64: false }), async (result, isCurrent) => {
       if (result.canceled) return;
-      if (sources.length + result.assets.length > 8) throw new Error('Możesz dodać maksymalnie 8 plików.');
+      if ((screen === 'vocabulary' ? vocabularySources.length : sources.length) + result.assets.length > 8) throw new Error('Możesz dodać maksymalnie 8 plików.');
       const added: Source[] = [];
       let committed = false;
       try {
@@ -429,13 +446,13 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
   const library = materialLibrary(notes, lessons);
   const filtered = materialLibrary(notes, lessons, search);
   const noteLesson = note && lessons.find(l => l.id === note.lessonId || l.noteId === note.id);
-  const focusedStudy = screen === 'study' && !!note && (tab === 'Fiszki' || tab === 'Quiz');
+  const focusedStudy = screen === 'study' && !!note && (tab === 'Fiszki' || tab === 'Quiz' || tab === 'Pisanie' || tab === 'Pary');
   if (!ready) return <SafeAreaView style={s.page}><ActivityIndicator color={C.green} style={{ marginTop: 100 }} /></SafeAreaView>;
   return <SafeAreaView style={s.page} edges={['top', 'bottom']}><StatusBar style="dark" /><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><View style={s.shell}>
     {!focusedStudy && <View style={s.header}><Pressable accessibilityRole="button" accessibilityLabel={screen === 'home' ? 'Strona główna' : 'Wróć do materiałów'} onPress={() => setScreen('home')} style={s.brand}><View style={s.logo}><Ionicons name={screen === 'home' ? 'leaf' : 'arrow-back'} size={22} color={C.lime} /></View><Text style={s.brandText}>notely.</Text></Pressable><View style={{ flexDirection: 'row', gap: 3 }}><Pressable accessibilityRole="button" accessibilityLabel="Twoje konto" onPress={openAccount} style={s.iconButton}><Ionicons name={owner ? 'person-circle' : 'person-circle-outline'} size={27} color={C.ink} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Ustawienia" onPress={() => setScreen('settings')} style={s.iconButton}><Ionicons name="settings-outline" size={22} color={C.ink} /></Pressable></View></View>}
     {pickerStatus && <View style={s.errorBar}><Text style={s.body}>{pickerStatus}. Jeśli okno wyboru się nie pojawiło, anuluj i spróbuj ponownie.</Text><Button text="Anuluj dodawanie" secondary onPress={() => picker.cancel()} /></View>}
     {storageError && <View style={s.errorBar}><Text style={s.errorText}>Brak zapisu w pamięci urządzenia. Ostatnie zmiany mogą zniknąć po zamknięciu.</Text><Button text="Ponów zapis" secondary onPress={() => task('Ponawiam zapis…', async () => { await AsyncStorage.setItem(STORE, JSON.stringify(notes)); await AsyncStorage.setItem(LESSONS, JSON.stringify(lessons)); await AsyncStorage.setItem(VOCABULARY, JSON.stringify({ text: vocabularyText, title: vocabularyTitle, sources: vocabularySources, readIds: vocabularyReadIds })); await AsyncStorage.setItem(DRAFT, JSON.stringify({ draft, sources, lessonId, meta: { title: lessonTitle, subject: lessonSubject, number: lessonNumber } })); setStorageError(false); setToast('Dane zapisane'); })} /></View>}
-    {screen === 'teacher' && note ? <Teacher key={note.id} note={note} settings={settings} keys={keys} onBack={() => setScreen('study')} onSettings={() => setScreen('settings')} onEvidence={setSourceLines} onSessionChange={locked => { recordingLock.current = locked; }} /> : screen === 'study' && note && tab === 'Fiszki' ? <View style={{ flex: 1 }}><View style={{ paddingHorizontal: 16, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 10 }}><Pressable accessibilityRole="button" accessibilityLabel="Wróć do notatki" onPress={() => setTab('Notatka')} style={{ minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="arrow-back" size={24} color={C.green} /></Pressable><Text style={[s.small, { flex: 1 }]} numberOfLines={1}>{note.title}</Text></View><Flashcards key={note.id} note={note} readOnly={!storageWritable || storageError} onUpdate={updateNote} onEvidence={setSourceLines} /></View> : screen === 'study' && note && tab === 'Quiz' ? <View style={{ flex: 1 }}><View style={{ paddingHorizontal: 16, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 10 }}><Pressable accessibilityRole="button" accessibilityLabel="Wróć do notatki" onPress={() => setTab('Notatka')} style={{ minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="arrow-back" size={24} color={C.green} /></Pressable><Text style={[s.small, { flex: 1 }]} numberOfLines={1}>{note.title}</Text></View><Quiz key={note.id} note={note} onEvidence={setSourceLines} /></View> : <ScrollView key={`${screen}-${selected}-${tab}`} keyboardShouldPersistTaps="handled" contentContainerStyle={s.content}>
+    {screen === 'teacher' && note ? <Teacher key={note.id} note={note} settings={settings} keys={keys} onBack={() => setScreen('study')} onSettings={() => setScreen('settings')} onEvidence={setSourceLines} onSessionChange={locked => { recordingLock.current = locked; }} /> : screen === 'study' && note && (tab === 'Pisanie' || tab === 'Pary') ? <View style={{ flex: 1, minHeight: 0 }}><View style={{ paddingHorizontal: 16, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 10 }}><Pressable accessibilityRole="button" accessibilityLabel="Wróć do wyboru ćwiczeń" onPress={() => setTab('Nauka')} style={{ minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="arrow-back" size={24} color={C.green} /></Pressable><Text style={[s.small, { flex: 1 }]} numberOfLines={1}>{note.title}</Text></View>{tab === 'Pisanie' ? <WrittenPractice key={`${note.id}:${studyFilter}:${reverseStudy}`} note={note} cardIndices={selectedCardIndices(note, studyFilter)} reverse={reverseStudy} practiceOnly={reverseStudy || studyFilter !== 'all'} onUpdate={updateNote} onEvidence={setSourceLines} readOnly={!storageWritable || storageError} /> : <MatchPractice key={`${note.id}:${studyFilter}:${reverseStudy}`} note={note} cardIndices={selectedCardIndices(note, studyFilter)} reverse={reverseStudy} onEvidence={setSourceLines} />}</View> : screen === 'study' && note && tab === 'Fiszki' ? <View style={{ flex: 1 }}><View style={{ paddingHorizontal: 16, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 10 }}><Pressable accessibilityRole="button" accessibilityLabel="Wróć do wyboru ćwiczeń" onPress={() => setTab('Nauka')} style={{ minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="arrow-back" size={24} color={C.green} /></Pressable><Text style={[s.small, { flex: 1 }]} numberOfLines={1}>{note.title}</Text></View><Flashcards key={`${note.id}:${studyFilter}:${reverseStudy}`} note={note} cardIndices={studyFilter === 'all' ? undefined : selectedCardIndices(note, studyFilter)} reverse={reverseStudy} readOnly={!storageWritable || storageError} onUpdate={updateNote} onEvidence={setSourceLines} /></View> : screen === 'study' && note && tab === 'Quiz' ? <View style={{ flex: 1 }}><View style={{ paddingHorizontal: 16, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 10 }}><Pressable accessibilityRole="button" accessibilityLabel="Wróć do wyboru ćwiczeń" onPress={() => setTab('Nauka')} style={{ minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="arrow-back" size={24} color={C.green} /></Pressable><Text style={[s.small, { flex: 1 }]} numberOfLines={1}>{note.title}</Text></View><Quiz key={note.id} note={quizNote || note} onEvidence={setSourceLines} /></View> : <ScrollView key={`${screen}-${selected}-${tab}`} keyboardShouldPersistTaps="handled" contentContainerStyle={s.content}>
       <Text style={s.eyebrow}>{screen === 'home' ? 'MNIEJ PRZEPISYWANIA. WIĘCEJ ROZUMIENIA.' : 'TWOJE NOTATKI, TWÓJ SPOSÓB NAUKI'}</Text><Text style={s.h1}>{title}</Text>
       {screen === 'home' && <>
         <View style={s.hero}><View style={s.heroDecoration}><Ionicons name="documents-outline" size={58} color={C.green} /></View><Chip>OD KARTKI DO WIEDZY</Chip><Text style={s.heroTitle}>Dobre notatki.{ '\n' }Jeszcze lepsza nauka.</Text><Text style={[s.body, { marginBottom: 20 }]}>Dodaj materiały i podpisz zdjęcia. Ucz się lokalnie lub z wybranym AI.</Text><Button text="Dodaj materiały" icon="add" onPress={startLesson} /></View>
@@ -467,13 +484,14 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
       </>}
       {screen === 'vocabulary' && <>
         <Button text="Wróć do dodawania materiałów" secondary icon="arrow-back" onPress={() => setScreen('import')} />
-        <View style={s.captureBox}><Text style={s.h2}>Zdjęcie listy albo własne słówka</Text><Text style={s.body}>Dodaj zdjęcia słów lub zdań w obcym języku albo wklej listę poniżej. Polskie tłumaczenia dodamy automatycznie.</Text><Button text="Zrób zdjęcie" icon="camera-outline" disabled={!!pickerStatus} onPress={() => pickImages(true)} /><Button text="Wybierz zdjęcia" secondary icon="images-outline" disabled={!!pickerStatus} onPress={() => pickImages(false)} /></View>
+        <View style={s.captureBox}><Text style={s.h2}>Zdjęcie listy albo własne słówka</Text><Text style={s.body}>Dodaj zdjęcia słów lub zdań w obcym języku albo wklej listę poniżej. Tłumaczenia w wybranym języku dodamy automatycznie.</Text><Button text="Zrób zdjęcie" icon="camera-outline" disabled={!!pickerStatus} onPress={() => pickImages(true)} /><Button text="Wybierz zdjęcia" secondary icon="images-outline" disabled={!!pickerStatus} onPress={() => pickImages(false)} /></View>
+        <Button text="Importuj listę TXT / CSV" secondary icon="document-text-outline" disabled={!!pickerStatus || !storageWritable} onPress={pickVocabularyText} /><Button text="Dodaj PDF lub zdjęcie z plików" secondary icon="folder-outline" disabled={!!pickerStatus || !storageWritable} onPress={() => pickFiles()} />
         <SourceEditor sources={vocabularySources} onOpen={setOriginal} onChange={setVocabularySources} />
         <View style={s.sectionRow}><Chip>{providerNames[settings.provider]}</Chip><Pressable accessibilityRole="button" onPress={() => setScreen('settings')}><Text style={s.link}>Ustawienia AI →</Text></Pressable></View>
         {settings.provider !== 'local' && <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: consent }} onPress={() => setConsent(!consent)} style={s.checkboxRow}><Ionicons name={consent ? 'checkbox' : 'square-outline'} size={25} color={C.green} /><Text style={[s.small, { flex: 1 }]}>Zgadzam się na przetworzenie zdjęć lub słówek przez serwer Notely i {providerNames[settings.provider]}.</Text></Pressable>}
-        <Button text="Odczytaj listę ze zdjęć" secondary icon="scan-outline" disabled={!vocabularySources.length || (settings.provider !== 'local' && !consent) || !storageWritable} onPress={readVocabulary} />
-        <VocabularyEditor text={vocabularyText} onText={setVocabularyText} title={vocabularyTitle} onTitle={setVocabularyTitle} onSave={saveVocabulary} disabled={!storageWritable || storageError} />
-        {!!parseVocabulary(vocabularyText).missing.length && <><Button text="Uzupełnij znaczenia z AI" secondary icon="sparkles-outline" disabled={/\[(?:nieczytelne|niepewne)\]/i.test(vocabularyText) || (settings.provider !== 'local' && !consent) || !storageWritable} onPress={completeVocabulary} /><Text style={s.small}>AI uzupełni tylko wiersze bez znaczenia. Gotowych par nie zmieni. Możesz też dopisać znaczenia ręcznie.</Text></>}
+        <Button text="Odczytaj i przetłumacz pliki" secondary icon="scan-outline" disabled={!vocabularySources.length || (settings.provider !== 'local' && !consent) || !storageWritable} onPress={readVocabulary} />
+        <VocabularyEditor text={vocabularyText} onText={setVocabularyText} title={vocabularyTitle} onTitle={setVocabularyTitle} onSave={saveVocabulary} targetLanguage={vocabularyLanguage} onLanguage={setVocabularyLanguage} context={vocabularyContext} onContext={setVocabularyContext} format={vocabularyFormat} onFormat={setVocabularyFormat} disabled={!storageWritable || storageError} consent={settings.provider === 'local' || consent} error={error} />
+        {!!parseCurrentVocabulary(vocabularyText).missing.length && <><Button text="Uzupełnij znaczenia z AI" secondary icon="sparkles-outline" disabled={/\[(?:nieczytelne|niepewne)\]/i.test(vocabularyText) || (settings.provider !== 'local' && !consent) || !storageWritable} onPress={completeVocabulary} /><Text style={s.small}>AI uzupełni tylko wiersze bez znaczenia. Gotowych par nie zmieni. Możesz też dopisać znaczenia ręcznie.</Text></>}
       </>}
       {screen === 'review' && draft && <>
         <Chip>ODCZYT → SPRAWDZENIE → NAUKA</Chip><Text style={s.body}>Porównaj tekst z oryginałem. Popraw błędy i oznaczone fragmenty, zanim przygotujemy materiały do nauki.</Text>
@@ -499,8 +517,10 @@ function AppContent({ owner, accountLabel, onAccount }: { owner: string | null; 
       </>}
       {screen === 'study' && note && <>
         <Text style={s.studyTitle}>{note.title}</Text>{note.id === demo.id && <Text style={s.small}>Przykładowe materiały — wypróbuj naukę bez serwera AI.</Text>}
-        <View style={s.tabs}>{((note.kind === 'vocabulary' ? ['Notatka', 'Fiszki'] : ['Notatka', 'Fiszki', 'Mapa', 'Quiz']) as StudyTab[]).map(t => <Pressable key={t} accessibilityRole="tab" accessibilityState={{ selected: tab === t }} onPress={() => setTab(t)} style={[s.tab, t === tab && s.activeTab]}><Text style={[s.tabText, t === tab && { color: C.white }]}>{t}</Text></Pressable>)}</View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[s.tabs, { flexGrow: 1 }]}>{((note.kind === 'vocabulary' ? ['Nauka', 'Fiszki', 'Quiz', 'Notatka'] : ['Notatka', 'Nauka', 'Fiszki', 'Mapa', 'Quiz']) as StudyTab[]).map(t => <Pressable key={t} accessibilityRole="tab" accessibilityState={{ selected: tab === t }} onPress={() => setTab(t)} style={[s.tab, { flex: 0, minWidth: 72, paddingHorizontal: 14 }, t === tab && s.activeTab]}><Text style={[s.tabText, t === tab && { color: C.white }]}>{t}</Text></Pressable>)}</ScrollView>
+        {tab === 'Nauka' && <StudyHub key={note.id} note={note} filter={studyFilter} onFilter={setStudyFilter} reverse={reverseStudy} onReverse={setReverseStudy} onStart={setTab} onUpdate={updateNote} readOnly={!storageWritable || storageError} />}
         {tab === 'Notatka' && note.sourceMode === 'pdf-notes' && <Text style={s.small}>Opracowanie PDF własnymi słowami · numery stron w odczycie materiału</Text>}
+        {tab === 'Notatka' && note.materials.flashcards.length > 0 && <Button text="Ćwicz materiał" icon="albums-outline" onPress={() => setTab('Nauka')} />}
         {tab === 'Notatka' && note.kind !== 'vocabulary' && <Button text="Wykładowca AI" icon="headset-outline" onPress={() => setScreen('teacher')} />}
         {tab === 'Notatka' && noteLesson && <Button text="Zdjęcia, nagrania i edycja materiałów" secondary icon="folder-open-outline" onPress={() => openLesson(noteLesson)} />}
         {tab === 'Notatka' && note.kind === 'vocabulary' && <View style={s.sectionCard}><Text style={s.h2}>Lista słówek</Text>{note.lines.filter(line => line.trim()).map((line, i) => <Text key={i} style={s.body}>{line}</Text>)}{note.sources.map(source => <Button key={source.id} text={source.caption || source.name} secondary icon="image-outline" onPress={() => setOriginal(source)} />)}</View>}

@@ -6,11 +6,15 @@ import { advanceSession, buildNextSession, buildSession, intervalLabel, nextSess
 import { Button, Chip, Empty, C, s } from './ui';
 
 import { flashcardPages } from './flashcardPages';
+import { toggleCardStar } from './studySelection';
 
 type Snapshot = { note: Note; queue: SessionItem[]; answered: number; correct: number; revealed: boolean };
-export function Flashcards({ note, onUpdate, onEvidence, labels, readOnly = false }: { note: Note; onUpdate: (note: Note) => void; onEvidence: (lines: number[]) => void; labels?: string[]; readOnly?: boolean }) {
-  const [practice, setPractice] = useState(false);
-  const [queue, setQueue] = useState(() => buildSession(note));
+export function Flashcards({ note, onUpdate, onEvidence, labels, readOnly = false, cardIndices, reverse = false }: { note: Note; onUpdate: (note: Note) => void; onEvidence: (lines: number[]) => void; labels?: string[]; readOnly?: boolean; cardIndices?: number[]; reverse?: boolean }) {
+  const scoped = cardIndices !== undefined || reverse;
+  const allowed = cardIndices === undefined ? null : new Set(cardIndices);
+  const scopedQueue = () => buildSession(note, Date.now(), 10, true).filter(item => !allowed || allowed.has(item.index));
+  const [practice, setPractice] = useState(scoped);
+  const [queue, setQueue] = useState(() => scoped ? scopedQueue() : buildSession(note));
   const [answered, setAnswered] = useState(0);
   const [correct, setCorrect] = useState(0);
   const [revealed, setRevealed] = useState(false);
@@ -18,13 +22,14 @@ export function Flashcards({ note, onUpdate, onEvidence, labels, readOnly = fals
   const [now, setNow] = useState(Date.now);
   const locked = useRef(false);
   const item = nextSessionItem(queue, answered, now);
-  const card = item ? note.materials.flashcards[item.index] : undefined;
+  const originalCard = item ? note.materials.flashcards[item.index] : undefined;
+  const card = originalCard && reverse ? { ...originalCard, question: originalCard.answer, answer: originalCard.question } : originalCard;
   const review = item ? note.reviews[String(item.index)] : undefined;
   const { height: screenHeight, fontScale } = useWindowDimensions();
   const compact = screenHeight < 740 || fontScale > 1.2;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => { locked.current = false; }, [item?.index, answered]);
-  function reset(nextPractice: boolean, nextSession = false) { const time = Date.now(); const next = nextSession ? buildNextSession(note, time) : { practice: nextPractice, queue: buildSession(note, time, 10, nextPractice) }; setNow(time); setPractice(next.practice); setQueue(next.queue); setAnswered(0); setCorrect(0); setRevealed(false); setUndo(null); locked.current = false; }
+  function reset(nextPractice: boolean, nextSession = false) { const time = Date.now(); const next = scoped ? { practice: true, queue: scopedQueue() } : nextSession ? buildNextSession(note, time) : { practice: nextPractice, queue: buildSession(note, time, 10, nextPractice) }; setNow(time); setPractice(next.practice); setQueue(next.queue); setAnswered(0); setCorrect(0); setRevealed(false); setUndo(null); locked.current = false; }
   function grade(known: boolean) {
     if (!item || !revealed || locked.current || readOnly) return;
     locked.current = true;
@@ -34,18 +39,18 @@ export function Flashcards({ note, onUpdate, onEvidence, labels, readOnly = fals
     setQueue(advanceSession(queue, item, known, nextReview, answered + 1, practice, time));
     setAnswered(answered + 1); setCorrect(correct + (known ? 1 : 0)); setRevealed(false); setNow(time);
   }
-  function undoGrade() { if (!undo || readOnly) return; if (!practice) onUpdate(undo.note); setQueue(undo.queue); setAnswered(undo.answered); setCorrect(undo.correct); setRevealed(undo.revealed); setNow(Date.now()); setUndo(null); locked.current = false; }
+  function undoGrade() { if (!undo || readOnly) return; if (!practice) onUpdate({ ...undo.note, starredCards: note.starredCards }); setQueue(undo.queue); setAnswered(undo.answered); setCorrect(undo.correct); setRevealed(undo.revealed); setNow(Date.now()); setUndo(null); locked.current = false; }
   const waiting = queue.length && !item ? Math.max(1, Math.ceil((Math.min(...queue.map(q => q.availableAt)) - now) / 1000)) : 0;
   const future = note.materials.flashcards.map((_, i) => note.reviews[String(i)]).filter(r => r && Date.parse(r.due) > now).sort((a, b) => Date.parse(a.due) - Date.parse(b.due))[0];
   if (!note.materials.flashcards.length) return <Empty icon="albums-outline" title="Bez dodatkowych fiszek" body="Dla tego materiału nie powstały fiszki. Pełną treść znajdziesz w notatce." />;
-  const nextIsPractice = !buildSession(note, now).length;
+  const nextIsPractice = scoped || !buildSession(note, now).length;
   return <View style={{ flex: 1, minHeight: 0 }}>
     <View style={{ flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 6, gap: 6 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><Text style={s.small}>{practice ? 'Ćwiczenie' : 'Powtórki'} · {answered} odpowiedzi</Text><Text style={s.small}>{queue.length} w kolejce</Text></View>
       {readOnly && <Text style={{ color: C.orange, fontSize: 12 }}>Nie można teraz zapisywać ocen.</Text>}
       {practice && <Text style={s.small}>Ćwiczysz bez zmiany terminów powtórek.</Text>}
       {card && item ? <>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><Text style={s.small}>FISZKA {item.index + 1} / {note.materials.flashcards.length}</Text><Chip color={review ? C.peach : C.lime}>{!review ? 'NOWA' : review.stage === 'review' ? 'POWTÓRKA' : 'UTRWALAMY'}</Chip></View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><Text style={s.small}>FISZKA {item.index + 1} / {note.materials.flashcards.length}</Text><Pressable accessibilityRole="checkbox" accessibilityLabel="Zaznacz fiszkę gwiazdką" accessibilityState={{ checked: !!note.starredCards?.includes(item.index), disabled: readOnly }} disabled={readOnly} onPress={() => onUpdate(toggleCardStar(note, item.index))} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Ionicons name={note.starredCards?.includes(item.index) ? 'star' : 'star-outline'} size={23} color={C.orange} /></Pressable><Chip color={review ? C.peach : C.lime}>{!review ? 'NOWA' : review.stage === 'review' ? 'POWTÓRKA' : 'UTRWALAMY'}</Chip></View>
         <CardFace key={`${item.index}-${answered}-${revealed}`} text={revealed ? card.answer : card.question} revealed={revealed} />
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           {revealed ? <Pressable accessibilityRole="button" onPress={() => setRevealed(false)} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={s.link}>Pytanie</Text></Pressable> : <Text style={s.small}>Przypomnij sobie odpowiedź.</Text>}
@@ -54,7 +59,7 @@ export function Flashcards({ note, onUpdate, onEvidence, labels, readOnly = fals
       </> : <View style={{ flex: 1, justifyContent: 'center', gap: 8 }}>
         <Empty icon={waiting ? 'time-outline' : 'checkmark-circle-outline'} title={waiting ? 'Chwila odstępu pomaga zapamiętać' : answered ? 'Sesja zakończona' : 'Na teraz wszystko'} body={waiting ? `Trudna fiszka wróci za ${waiting >= 60 ? `${Math.ceil(waiting / 60)} min` : `${waiting} s`}.` : `${correct} z ${answered} odpowiedzi „Umiem”.${future ? ` Najbliższa powtórka za ${intervalLabel(future, now)}.` : ''}`} />
         {!waiting && note.materials.flashcards.length > 0 && <Button text={nextIsPractice ? 'Ćwicz ponownie' : 'Kolejna sesja'} onPress={() => reset(false, true)} />}
-        {!waiting && (practice || !nextIsPractice) && <Button text={practice ? 'Wróć do powtórek' : 'Ćwicz cały zestaw'} secondary onPress={() => reset(!practice)} />}
+        {!waiting && !scoped && (practice || !nextIsPractice) && <Button text={scoped ? 'Ćwicz ponownie' : practice ? 'Wróć do powtórek' : 'Ćwicz cały zestaw'} secondary onPress={() => reset(!practice)} />}
       </View>}
     </View>
     <View style={{ paddingHorizontal: 20, paddingTop: 6, paddingBottom: 8, gap: 6, borderTopWidth: 1, borderColor: C.border, backgroundColor: C.paper }}>

@@ -25,6 +25,16 @@ test('Never drops incomplete lines or silently saves empty answers', () => {
   assert.throws(() => vocabularyNote('[niepewne] — jabłko', '', [], 'words'), /Uzupełnij/);
 });
 import { applyVocabularyTranslations } from './vocabulary.ts';
+import { vocabularyBlockReason } from './vocabulary.ts';
+
+test('Untranslated Spanish words are actionable; blocked states explain how to continue', () => {
+  assert.equal(vocabularyBlockReason('la casa\nNo tengo dinero.', true, true), '');
+  assert.match(vocabularyBlockReason('la casa', true, false), /zgodę/);
+  assert.equal(vocabularyBlockReason('la casa — dom', true, false), '');
+  assert.match(vocabularyBlockReason(''), /Wpisz/);
+  assert.match(vocabularyBlockReason('la casa\npalabra [niepewne]'), /wierszach 2/);
+  assert.match(vocabularyBlockReason('la casa', false), /zachowana/);
+});
 
 test('Automatic translations retain full Spanish sentences, existing pairs and duplicate rows', () => {
   const text = 'la casa\nMe gustaría un café.\napple — jabłko\nla casa';

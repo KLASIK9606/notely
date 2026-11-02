@@ -26,6 +26,44 @@ test('Translation instructions cover entire Spanish sentences, context and imper
   assert.deepEqual(result.entries, [{ term: terms[0], answer: 'Nie mam pieniędzy.' }, { term: terms[1], answer: 'Otwórz drzwi.' }]);
 });
 
+test('Target language and context are explicit while mixed source rows remain unchanged', async () => {
+  const terms = ['No tengo 20 euros.', 'Nie mam 20 euro.'];
+  const context = 'Podróże i zakupy';
+  const result = await translateVocabulary({}, { terms, targetLanguage: 'en', context }, async (_config, _ai, _schema, _name, instructions, content) => {
+    assert.match(instructions, /Język docelowy: angielski \(en\)/);
+    assert.match(instructions, /język źródłowy każdego wiersza osobno/);
+    assert.match(instructions, /przeczenia, osoby, czas, liczby/);
+    assert.deepEqual(JSON.parse(content[0].text), terms.map((term, index) => ({ index, term })));
+    assert.deepEqual(JSON.parse(content[1].text), { context });
+    return { entries: [{ index: 0, answer: 'I do not have 20 euros.' }, { index: 1, answer: 'I do not have 20 euros.' }] };
+  });
+  assert.deepEqual(result.entries.map(entry => entry.term), terms);
+  assert.deepEqual(result.entries.map(entry => entry.answer), ['I do not have 20 euros.', 'I do not have 20 euros.']);
+});
+
+test('Unsupported languages and malformed context fail before spending an AI call', async () => {
+  let called = false;
+  const model = async () => { called = true; };
+  for (const targetLanguage of ['xx', '__proto__', 'constructor', '', null, 123]) {
+    await assert.rejects(translateVocabulary({}, { terms: ['hola'], targetLanguage }, model), error => error.status === 400);
+  }
+  for (const context of [null, 123, {}, 'x'.repeat(501)]) {
+    await assert.rejects(translateVocabulary({}, { terms: ['hola'], context }, model), error => error.status === 400);
+  }
+  assert.equal(called, false);
+});
+
+test('Every offered target is accepted and cancellation after a late response stays cancelled', async () => {
+  for (const targetLanguage of ['pl', 'en', 'es', 'de', 'fr', 'it']) {
+    const result = await translateVocabulary({}, { terms: ['hola'], targetLanguage }, async () => ({ entries: [{ index: 0, answer: 'sample translation' }] }));
+    assert.equal(result.entries.length, 1);
+  }
+  const controller = new AbortController();
+  await assert.rejects(translateVocabulary({}, { terms: ['hola'] }, async () => {
+    controller.abort(); return { entries: [{ index: 0, answer: 'cześć' }] };
+  }, { signal: controller.signal }), error => error.name === 'AbortError');
+});
+
 test('Missing, duplicate and reordered vocabulary results never create a partial set silently', async () => {
   const terms = ['apple', 'potato'];
   for (const entries of [[{ index: 0, answer: 'jabłko' }], [{ index: 1, answer: 'ziemniak' }, { index: 0, answer: 'jabłko' }], [{ index: 0, answer: 'jabłko' }, { index: 0, answer: 'jabłko' }], [{ index: 0, answer: null }, { index: 1, answer: 'ziemniak' }]]) {
