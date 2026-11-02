@@ -34,12 +34,17 @@ test('Vocabulary quizzes do not fabricate distractors or create ambiguous duplic
 test('CSV and TSV preserve quoted commas, existing translations and repeated words', () => {
   assert.equal(importVocabularyText('words.csv', '\uFEFFword;translation\nla casa;dom\nla casa;dom'), 'la casa\tdom\nla casa\tdom');
   assert.equal(importVocabularyText('words.csv', '"¿Dónde, exactamente?","Gdzie dokładnie?"'), '¿Dónde, exactamente?\tGdzie dokładnie?');
+  assert.equal(importVocabularyText('words.csv', 'hola;"Hola, mundo"'), 'hola\tHola, mundo');
+  assert.equal(importVocabularyText('words.csv', 'hola;"Hola\nmundo"'), 'hola\tHola mundo');
   assert.equal(importVocabularyText('words.tsv', 'word\ttranslation\nhola\tcześć'), 'hola\tcześć');
+  assert.equal(importVocabularyText('words.csv', 'word\nhouse'), 'word\nhouse');
+  assert.equal(importVocabularyText('polish-vocabulary.csv', readFileSync(new URL('../tests/fixtures/polish-vocabulary.csv', import.meta.url), 'utf8')), 'Dzień dobry\nNie mam pieniędzy.');
   assert.throws(() => importVocabularyText('bad.csv', ';answer'), /oryginał/);
   assert.throws(() => importVocabularyText('bad.csv', 'a,b,c'), /dwie/);
   assert.throws(() => importVocabularyText('bad.csv', '"unterminated'), /cudzysłów/);
   assert.throws(() => importVocabularyText('bad.exe', 'hello'));
   assert.throws(() => importVocabularyText('bad.txt', ''));
+  assert.throws(() => importVocabularyText('big.txt', '🥔'.repeat(300000)), /1 MB/);
 });
 test('Raw sentences with internal dashes survive translation and round-trip as canonical pairs', () => {
   const text = 'Me gusta — pero no hoy.';
